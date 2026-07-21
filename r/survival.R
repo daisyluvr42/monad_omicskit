@@ -36,9 +36,14 @@ prepare <- function(params, require_predictors = TRUE) {
     }
   }
 
+  # Keep the identifier column so the risk-score table is traceable to samples.
+  id_col <- as.character(params$id_column %||% colnames(df)[1])[1]
+  ids <- if (id_col %in% colnames(df)) as.character(df[[id_col]]) else as.character(seq_len(nrow(df)))
+
   keep <- c(time_col, event_col, predictors, as.character(params$risk_column %||% character()))
   keep <- intersect(unique(keep), colnames(df))
   df <- df[, keep, drop = FALSE]
+  rownames(df) <- make.unique(ids)
   df[[time_col]] <- as.numeric(df[[time_col]])
   df[[event_col]] <- as.numeric(df[[event_col]])
   before <- nrow(df)

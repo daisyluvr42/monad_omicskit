@@ -137,6 +137,7 @@ TOOLS: list[dict[str, Any]] = [
                 "time": {"type": "string", "default": "time"},
                 "event": {"type": "string", "default": "event", "description": "0/1 coded; 1 = event occurred."},
                 "predictors": {"type": "array", "items": {"type": "string"}},
+                "id_column": {"type": "string", "description": "Sample identifier column; defaults to the first column."},
                 "risk_column": {"type": "string", "default": "risk_score"},
                 "alpha": {"type": "number", "default": 1},
                 "nfolds": {"type": "integer", "default": 10},
