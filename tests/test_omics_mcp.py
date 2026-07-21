@@ -9,10 +9,12 @@ useful before the 20-minute dependency install completes.
 from __future__ import annotations
 
 import json
+import io
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -65,6 +67,29 @@ class ProtocolTests(unittest.TestCase):
     def test_initialize_reports_server_name(self) -> None:
         response = omics_mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(response["result"]["serverInfo"]["name"], "omics")
+
+    def test_content_length_uses_utf8_bytes(self) -> None:
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "omics_feature_menu",
+                    "arguments": {"context": "\u7ec4\u5b66"},
+                },
+            },
+            ensure_ascii=False,
+        )
+        payload = (
+            f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n".encode("utf-8")
+            + body.encode("utf-8")
+        )
+        stdin = io.TextIOWrapper(io.BytesIO(payload), encoding="utf-8")
+        with mock.patch.object(sys, "stdin", stdin):
+            omics_mcp.MESSAGE_MODE = "headers"
+            message = omics_mcp.read_message()
+        self.assertEqual(message["params"]["arguments"]["context"], "\u7ec4\u5b66")
 
 
 class EnvTests(unittest.TestCase):

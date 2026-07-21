@@ -369,10 +369,15 @@ CALLS: dict[str, Callable[[dict[str, Any]], Any]] = {
 
 def read_message() -> dict[str, Any] | None:
     global MESSAGE_MODE
-    line = sys.stdin.readline()
+    stream = getattr(sys.stdin, "buffer", sys.stdin)
+    line = stream.readline()
     if not line:
         return None
-    stripped = line.strip()
+    if isinstance(line, bytes):
+        line_text = line.decode("utf-8")
+    else:
+        line_text = line
+    stripped = line_text.strip()
     if not stripped:
         return read_message()
     if stripped.lower().startswith("content-length:"):
@@ -382,12 +387,18 @@ def read_message() -> dict[str, Any] | None:
         except ValueError as exc:
             raise MessageParseError(f"Invalid Content-Length: {stripped}") from exc
         while True:
-            header = sys.stdin.readline()
-            if not header or header.strip() == "":
+            header = stream.readline()
+            if isinstance(header, bytes):
+                header_text = header.decode("utf-8")
+            else:
+                header_text = header
+            if not header or header_text.strip() == "":
                 break
-        body = sys.stdin.read(length)
+        body = stream.read(length)
         if not body:
             return None
+        if isinstance(body, bytes):
+            body = body.decode("utf-8")
         try:
             return json.loads(body)
         except json.JSONDecodeError as exc:
