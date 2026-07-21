@@ -69,12 +69,13 @@ def main() -> None:
     ]
     write_csv(FIXTURES / "coldata.csv", ["sample", "group", "sex", "age", "batch"], coldata_rows)
 
-    # Survival fixture: risk driven by the first three genes so LASSO has real signal.
+    # Survival fixture: risk driven by the first three genes. Effects are strong
+    # enough that LASSO retains them under the conservative lambda.1se rule.
     surv_rows = []
-    n_subjects = 120
+    n_subjects = 200
     for i in range(n_subjects):
         expr = [rng.gauss(0, 1) for _ in range(8)]
-        linear = 0.9 * expr[0] + 0.7 * expr[1] - 0.6 * expr[2]
+        linear = 1.8 * expr[0] + 1.4 * expr[1] - 1.2 * expr[2]
         scale = math.exp(-linear / 2)
         time = rng.expovariate(1 / (24 * scale))
         censor = rng.expovariate(1 / 40)

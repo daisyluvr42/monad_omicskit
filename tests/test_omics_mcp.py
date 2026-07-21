@@ -28,9 +28,9 @@ def r_packages_present(*packages: str) -> bool:
         rscript = omics_mcp._find_rscript()
     except RuntimeError:
         return False
-    probe = "pkgs <- commandArgs(trailingOnly=TRUE); cat(all(sapply(pkgs, requireNamespace, quietly=TRUE)))"
+    probe = f"cat(all(sapply({omics_mcp._r_vector(list(packages))}, requireNamespace, quietly=TRUE)))"
     result = subprocess.run(
-        [rscript, "--vanilla", "-e", probe, "--args", *packages],
+        [rscript, "--vanilla", "-e", probe],
         capture_output=True, text=True, timeout=180, check=False,
     )
     return "TRUE" in (result.stdout or "")

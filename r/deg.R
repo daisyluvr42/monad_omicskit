@@ -203,7 +203,7 @@ handler <- function(params) {
     comparison = sprintf("%s vs %s", io$treat, io$control),
     design = paste(deparse(build_design(io$coldata, io$group_column, io$covariates)), collapse = ""),
     samples = list(treat = io$n_treat, control = io$n_control),
-    covariates = io$covariates,
+    covariates = omics_arr(io$covariates),
     thresholds = list(log2fc = lfc_cut, padj = padj_cut, padj_method = padj_method),
     genes_tested = nrow(table),
     significant = list(
@@ -214,10 +214,10 @@ handler <- function(params) {
     top_genes = utils::head(sig[, c("gene", "log2FoldChange", "pvalue", "padj", "direction")], 25),
     result_table = all_path,
     significant_table = sig_path,
-    notes = c(
+    notes = omics_arr(c(
       "log2FoldChange is treat vs control; positive means higher in treat.",
       sprintf("Multiple testing correction: %s.", padj_method)
-    )
+    ))
   )
 }
 

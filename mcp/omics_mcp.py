@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,7 +25,7 @@ R_PACKAGE_GROUPS: dict[str, list[str]] = {
     "core": ["jsonlite", "ggplot2"],
     "deg": ["DESeq2", "edgeR", "limma"],
     "enrich": ["clusterProfiler", "enrichplot", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA", "msigdbr"],
-    "plot": ["pheatmap", "ggrepel", "ggvenn", "RColorBrewer"],
+    "plot": ["pheatmap", "ggrepel", "ggvenn", "RColorBrewer", "svglite"],
     "survival": ["survival", "survminer", "glmnet", "timeROC", "rms"],
 }
 
@@ -228,6 +229,17 @@ def _run_r(script: str, payload: dict[str, Any], timeout: int = 900) -> dict[str
         raise RuntimeError(f"R script '{script}' failed (exit {process.returncode}): {stderr[-1500:] or 'no output'}")
 
 
+def _r_vector(values: list[str]) -> str:
+    """Build an R character vector literal.
+
+    Package names are passed inside the -e expression rather than after --args,
+    because `commandArgs(trailingOnly=TRUE)` includes the literal "--args" when R
+    is invoked with -e, which silently poisons any check over that vector.
+    """
+    safe = [name for name in values if re.fullmatch(r"[A-Za-z0-9._]+", name)]
+    return "c(" + ",".join(f'"{name}"' for name in safe) + ")"
+
+
 def env_tool(args: dict[str, Any]) -> dict[str, Any]:
     group = str(args.get("group", "all") or "all")
     if group == "all":
@@ -248,12 +260,12 @@ def env_tool(args: dict[str, Any]) -> dict[str, Any]:
         }
 
     probe = (
-        "pkgs <- commandArgs(trailingOnly=TRUE); "
+        f"pkgs <- {_r_vector(packages)}; "
         "cat(R.version.string, '\\n'); "
         "for (p in pkgs) cat(p, as.integer(requireNamespace(p, quietly=TRUE)), '\\n')"
     )
     process = subprocess.run(
-        [rscript, "--vanilla", "-e", probe, "--args", *packages],
+        [rscript, "--vanilla", "-e", probe],
         capture_output=True,
         text=True,
         timeout=180,

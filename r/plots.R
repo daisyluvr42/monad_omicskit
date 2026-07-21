@@ -84,7 +84,7 @@ plot_volcano <- function(params) {
     up = sum(df$direction == "Up"),
     down = sum(df$direction == "Down"),
     thresholds = list(log2fc = lfc_cut, p = p_cut, p_column = p_col),
-    labelled_genes = labelled$gene,
+    labelled_genes = omics_arr(labelled$gene),
     figure = figure
   )
 }
@@ -152,7 +152,7 @@ plot_heatmap <- function(params) {
     genes = nrow(mat),
     samples = ncol(mat),
     scaled = if (scale_rows) "row z-score" else "none",
-    dropped_zero_variance = dropped,
+    dropped_zero_variance = omics_arr(dropped),
     figure = figure,
     notes = if (scale_rows) "Colours are row z-scores, so they show relative pattern across samples, not absolute expression." else NULL
   )
@@ -193,7 +193,7 @@ plot_venn <- function(params) {
   list(
     type = "venn",
     sets = lapply(sets, length),
-    intersection_all = intersection,
+    intersection_all = omics_arr(intersection),
     intersection_size = length(intersection),
     regions = lapply(regions, length),
     membership_table = table_path,

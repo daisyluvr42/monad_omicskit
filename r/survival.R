@@ -154,7 +154,7 @@ run_lasso_cox <- function(params) {
     events = io$events,
     rows_dropped_missing = io$dropped,
     candidates = length(io$predictors),
-    selected_variables = selected,
+    selected_variables = omics_arr(selected),
     coefficients = coef_table,
     concordance_index = cindex,
     risk_group_cut = "median risk score",
@@ -162,10 +162,10 @@ run_lasso_cox <- function(params) {
     risk_score_table = score_path,
     cv_figure = cv_figure,
     km_figure = km_figure,
-    warnings = c(
+    warnings = omics_arr(c(
       epv_warning(io$events, length(selected)),
       "The C-index above is computed on the same data used to fit the model and is optimistic. Report an external or held-out validation C-index before claiming prognostic value."
-    )
+    ))
   )
 }
 
@@ -208,8 +208,8 @@ run_timeroc <- function(params) {
     marker = risk_column,
     n = io$n,
     events = io$events,
-    times = times,
-    auc = auc,
+    times = omics_arr(times),
+    auc = omics_arr(auc),
     auc_ci = if (!is.null(ci)) as.data.frame(ci) else NULL,
     figure = figure,
     notes = "AUC computed on the data supplied; if this is the training set the value is optimistic."
@@ -244,14 +244,14 @@ run_nomogram <- function(params) {
     method = "nomogram",
     n = io$n,
     events = io$events,
-    predictors = io$predictors,
-    times = times,
+    predictors = omics_arr(io$predictors),
+    times = omics_arr(times),
     concordance_index = unname(fit$stats["Dxy"] / 2 + 0.5),
     figure = figure,
-    warnings = c(
+    warnings = omics_arr(c(
       epv_warning(io$events, length(io$predictors)),
       "A nomogram displays the fitted model; it is not itself validation. Pair it with a calibration curve and external validation."
-    )
+    ))
   )
 }
 

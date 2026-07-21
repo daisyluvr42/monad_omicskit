@@ -171,6 +171,15 @@ omics_species <- function(params, default = NULL) {
   known[[species]]
 }
 
+# Fields that are conceptually lists must stay JSON arrays even when they hold a
+# single element. auto_unbox would otherwise collapse them to a bare scalar, so
+# the result's shape would depend on the data and every caller would need to
+# handle both forms.
+omics_arr <- function(x) {
+  if (is.null(x)) return(NULL)
+  I(unname(x))
+}
+
 omics_write <- function(result, out) {
   json <- jsonlite::toJSON(
     result,

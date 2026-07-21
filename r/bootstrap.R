@@ -13,7 +13,8 @@ GROUPS <- list(
   core = c("jsonlite", "ggplot2"),
   deg = c("DESeq2", "edgeR", "limma"),
   enrich = c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA", "msigdbr"),
-  plot = c("pheatmap", "ggrepel", "ggvenn", "RColorBrewer"),
+  # svglite backs ggsave's SVG device; without it every figure call fails at save time.
+  plot = c("pheatmap", "ggrepel", "ggvenn", "RColorBrewer", "svglite"),
   survival = c("survival", "survminer", "glmnet", "timeROC", "rms")
 )
 
@@ -90,6 +91,9 @@ main <- function() {
   }
 
   options(repos = c(CRAN = "https://cloud.r-project.org"))
+  # Annotation packages run to hundreds of MB; the 60s default aborts them
+  # mid-download on slower or unstable connections.
+  options(timeout = max(getOption("timeout"), 1800))
   warn_if_source_only()
   clear_stale_locks()
   missing <- pkgs[!status(pkgs)]

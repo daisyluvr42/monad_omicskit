@@ -168,10 +168,13 @@ def report_r_status() -> None:
         print(f"  cd {ROOT} && Rscript r/bootstrap.R")
         return
     print(f"\nFound R: {rscript}")
-    probe = "pkgs <- commandArgs(trailingOnly=TRUE); cat(sum(sapply(pkgs, requireNamespace, quietly=TRUE)), length(pkgs))"
     packages = ["jsonlite", "ggplot2", "DESeq2", "limma", "clusterProfiler", "org.Hs.eg.db", "pheatmap", "glmnet", "survival"]
+    # Build the vector inside -e: commandArgs(trailingOnly=TRUE) includes the
+    # literal "--args" when R is launched with -e, which corrupts the check.
+    vector = "c(" + ",".join(f'"{name}"' for name in packages) + ")"
+    probe = f"pkgs <- {vector}; cat(sum(sapply(pkgs, requireNamespace, quietly=TRUE)), length(pkgs))"
     result = subprocess.run(
-        [rscript, "--vanilla", "-e", probe, "--args", *packages],
+        [rscript, "--vanilla", "-e", probe],
         capture_output=True, text=True, timeout=180, check=False,
     )
     counts = (result.stdout or "").strip().split()

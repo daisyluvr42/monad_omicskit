@@ -122,17 +122,17 @@ run_ora <- function(params, org, method) {
     ontology = if (method == "go") toupper(as.character(params$ontology %||% "BP")[1]) else NULL,
     genes_supplied = mapping$input_n,
     genes_mapped = mapping$mapped_n,
-    genes_unmapped = mapping$unmapped,
+    genes_unmapped = omics_arr(mapping$unmapped),
     background = if (is.null(universe_entrez)) "genome-wide default" else sprintf("user-supplied (%d genes)", length(universe_entrez)),
     thresholds = list(pvalue = pvalue, qvalue = qvalue, padj_method = "BH"),
     terms_significant = nrow(df),
     top_terms = utils::head(df, 15),
     result_table = table_path,
     figure = figure,
-    notes = c(
+    notes = omics_arr(c(
       "Enrichment shows association between a gene list and annotated terms; it is not evidence of mechanism or causation.",
       "Unmapped symbols were excluded; check them for outdated aliases before reporting gene counts."
-    )
+    ))
   )
 }
 
@@ -182,10 +182,10 @@ run_gsea <- function(params, org) {
     top_terms = utils::head(df[order(df$p.adjust), c("ID", "Description", "NES", "pvalue", "p.adjust", "setSize")], 15),
     result_table = table_path,
     figure = figure,
-    notes = c(
+    notes = omics_arr(c(
       "GSEA requires the complete ranked gene list, not a pre-filtered DEG set.",
       "NES sign follows the ranking metric; positive means enriched at the top of the ranking."
-    )
+    ))
   )
 }
 
@@ -225,10 +225,10 @@ run_gsva <- function(params, org, method) {
     samples = ncol(mat),
     kcdf = if (method == "gsva") kcdf else NULL,
     score_table = table_path,
-    notes = c(
+    notes = omics_arr(c(
       sprintf("%s returns per-sample pathway scores; compare them between groups with a downstream test.", toupper(method)),
       "Scores are relative within this dataset and are not comparable across datasets."
-    )
+    ))
   )
 }
 
