@@ -48,6 +48,34 @@ report <- function(pkgs) {
   invisible(have)
 }
 
+# A crashed install leaves 00LOCK-<pkg> behind, and every later attempt at that
+# package fails until it is removed.
+clear_stale_locks <- function() {
+  cleared <- character()
+  for (lib in .libPaths()) {
+    locks <- list.files(lib, pattern = "^00LOCK", full.names = TRUE)
+    for (lock in locks) {
+      if (unlink(lock, recursive = TRUE, force = TRUE) == 0) {
+        cleared <- c(cleared, basename(lock))
+      }
+    }
+  }
+  if (length(cleared)) {
+    cat(sprintf("Cleared %d stale install lock(s): %s\n", length(cleared), paste(cleared, collapse = ", ")))
+  }
+  invisible(cleared)
+}
+
+warn_if_source_only <- function() {
+  if (!identical(getOption("pkgType"), "source")) return(invisible(NULL))
+  cat("\n! This R build installs every package from source.\n")
+  cat("  Platform:", R.version$platform, "\n")
+  cat("  CRAN and Bioconductor ship macOS binaries for the official CRAN build only,\n")
+  cat("  so a Homebrew R compiles the whole dependency tree and needs system libraries\n")
+  cat("  (cmake, imagemagick, hdf5, ...). Installing the CRAN build of R is far more\n")
+  cat("  reliable for Bioconductor: https://cran.r-project.org/bin/macosx/\n\n")
+}
+
 main <- function() {
   argv <- commandArgs(trailingOnly = TRUE)
   pkgs <- resolve(argv)
@@ -62,6 +90,8 @@ main <- function() {
   }
 
   options(repos = c(CRAN = "https://cloud.r-project.org"))
+  warn_if_source_only()
+  clear_stale_locks()
   missing <- pkgs[!status(pkgs)]
   if (!length(missing)) {
     cat("All requested R packages are already installed.\n")
