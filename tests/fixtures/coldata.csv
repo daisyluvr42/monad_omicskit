@@ -1,0 +1,13 @@
+sample,group,sex,age,batch
+CTRL1,control,F,40,batch1
+CTRL2,control,M,43,batch2
+CTRL3,control,F,46,batch1
+CTRL4,control,M,49,batch2
+CTRL5,control,F,52,batch1
+CTRL6,control,M,55,batch2
+DIS1,disease,F,58,batch1
+DIS2,disease,M,61,batch2
+DIS3,disease,F,64,batch1
+DIS4,disease,M,67,batch2
+DIS5,disease,F,40,batch1
+DIS6,disease,M,43,batch2
