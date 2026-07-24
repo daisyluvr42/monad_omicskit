@@ -5,3 +5,5 @@ __pycache__/
 .RData
 .Rproj.user/
 test-output/
+Rplots.pdf
+*.Rout
