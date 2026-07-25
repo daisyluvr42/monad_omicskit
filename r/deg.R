@@ -16,13 +16,13 @@
 OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
-build_design <- function(coldata, group_column, covariates) {
-  terms <- c(covariates, group_column)
-  stats::as.formula(paste("~", paste(terms, collapse = " + ")))
+build_design <- function(group_column, covariates) {
+  stats::reformulate(c(covariates, group_column))
 }
 
 align_inputs <- function(params) {
-  mat <- omics_read_matrix(params)
+  matrix_type <- omics_matrix_type(params)
+  mat <- omics_read_matrix(params, matrix_type = matrix_type)
   coldata <- omics_read_table(params, "coldata_path", "coldata")
   rownames(coldata) <- as.character(coldata[[1]])
 
@@ -57,8 +57,6 @@ align_inputs <- function(params) {
   keep <- as.character(coldata[[group_column]]) %in% c(treat, control)
   mat <- mat[, keep, drop = FALSE]
   coldata <- coldata[keep, , drop = FALSE]
-  # Control first so every engine reports treat vs control in the same direction.
-  coldata[[group_column]] <- factor(as.character(coldata[[group_column]]), levels = c(control, treat))
 
   covariates <- params$covariates
   if (!is.null(covariates)) {
@@ -67,20 +65,31 @@ align_inputs <- function(params) {
     if (length(missing)) {
       stop(sprintf("covariates not found in coldata: %s", paste(missing, collapse = ", ")), call. = FALSE)
     }
-    for (cv in covariates) {
-      if (is.character(coldata[[cv]])) coldata[[cv]] <- factor(coldata[[cv]])
-    }
   }
 
-  n_treat <- sum(coldata[[group_column]] == treat)
-  n_control <- sum(coldata[[group_column]] == control)
+  n_treat <- sum(as.character(coldata[[group_column]]) == treat)
+  n_control <- sum(as.character(coldata[[group_column]]) == control)
   if (n_treat < 2L || n_control < 2L) {
     stop(sprintf("Each group needs at least 2 samples (%s=%d, %s=%d). Differential expression on a single replicate is not interpretable.",
                  treat, n_treat, control, n_control), call. = FALSE)
   }
 
-  list(mat = mat, coldata = coldata, group_column = group_column,
-       treat = treat, control = control, covariates = covariates,
+  safe_coldata <- data.frame(row.names = rownames(coldata))
+  safe_coldata$.group <- factor(as.character(coldata[[group_column]]), levels = c(control, treat))
+  safe_covariates <- character()
+  if (length(covariates)) {
+    safe_covariates <- sprintf(".covariate_%d", seq_along(covariates))
+    for (index in seq_along(covariates)) {
+      value <- coldata[[covariates[[index]]]]
+      if (is.character(value)) value <- factor(value)
+      safe_coldata[[safe_covariates[[index]]]] <- value
+    }
+  }
+
+  list(mat = mat, coldata = safe_coldata, group_column = ".group",
+       original_group_column = group_column, treat = treat, control = control,
+       covariates = safe_covariates, original_covariates = covariates,
+       matrix_type = matrix_type,
        n_treat = n_treat, n_control = n_control)
 }
 
@@ -91,7 +100,7 @@ run_deseq2 <- function(io, padj_method) {
   dds <- DESeq2::DESeqDataSetFromMatrix(
     countData = counts,
     colData = io$coldata,
-    design = build_design(io$coldata, io$group_column, io$covariates)
+    design = build_design(io$group_column, io$covariates)
   )
   # Standard low-count prefilter; keeps dispersion estimation stable.
   dds <- dds[rowSums(DESeq2::counts(dds)) >= 10, ]
@@ -116,7 +125,7 @@ run_deseq2 <- function(io, padj_method) {
 run_edger <- function(io, padj_method) {
   omics_require(c("edgeR"))
   counts <- round(io$mat)
-  design <- stats::model.matrix(build_design(io$coldata, io$group_column, io$covariates), data = io$coldata)
+  design <- stats::model.matrix(build_design(io$group_column, io$covariates), data = io$coldata)
   dge <- edgeR::DGEList(counts = counts, group = io$coldata[[io$group_column]])
   keep <- edgeR::filterByExpr(dge, design = design)
   dge <- dge[keep, , keep.lib.sizes = FALSE]
@@ -139,7 +148,7 @@ run_edger <- function(io, padj_method) {
 
 run_limma <- function(io, padj_method, use_voom) {
   omics_require(c("limma"))
-  design <- stats::model.matrix(build_design(io$coldata, io$group_column, io$covariates), data = io$coldata)
+  design <- stats::model.matrix(build_design(io$group_column, io$covariates), data = io$coldata)
   if (isTRUE(use_voom)) {
     omics_require(c("edgeR"))
     dge <- edgeR::DGEList(counts = round(io$mat))
@@ -169,6 +178,15 @@ handler <- function(params) {
   io <- align_inputs(params)
 
   use_voom <- isTRUE(params$voom)
+  if (method %in% c("deseq2", "edger") && io$matrix_type != "counts") {
+    stop(sprintf("%s requires matrix_type='counts'.", method), call. = FALSE)
+  }
+  if (method == "limma" && use_voom && io$matrix_type != "counts") {
+    stop("limma-voom requires matrix_type='counts'.", call. = FALSE)
+  }
+  if (method == "limma" && !use_voom && io$matrix_type != "normalized") {
+    stop("limma without voom requires matrix_type='normalized'.", call. = FALSE)
+  }
   if (method %in% c("deseq2", "edger")) {
     omics_assert_counts(io$mat, toupper(method))
   } else if (method == "limma" && use_voom) {
@@ -200,10 +218,11 @@ handler <- function(params) {
 
   list(
     method = method,
+    matrix_type = io$matrix_type,
     comparison = sprintf("%s vs %s", io$treat, io$control),
-    design = paste(deparse(build_design(io$coldata, io$group_column, io$covariates)), collapse = ""),
+    design = paste(c(io$original_covariates, io$original_group_column), collapse = " + "),
     samples = list(treat = io$n_treat, control = io$n_control),
-    covariates = omics_arr(io$covariates),
+    covariates = omics_arr(io$original_covariates),
     thresholds = list(log2fc = lfc_cut, padj = padj_cut, padj_method = padj_method),
     genes_tested = nrow(table),
     significant = list(

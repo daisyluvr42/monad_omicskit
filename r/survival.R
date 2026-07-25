@@ -17,7 +17,31 @@
 OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
-prepare <- function(params, require_predictors = TRUE) {
+numeric_column <- function(values, name) {
+  converted <- suppressWarnings(as.numeric(values))
+  invalid <- !is.na(values) & is.na(converted)
+  if (any(invalid)) {
+    examples <- utils::head(unique(as.character(values[invalid])), 3)
+    stop(sprintf("Column '%s' contains non-numeric values: %s", name, paste(examples, collapse = ", ")), call. = FALSE)
+  }
+  converted
+}
+
+survival_formula <- function(predictors) {
+  stats::reformulate(predictors, response = "survival::Surv(.time, .event)")
+}
+
+restore_terms <- function(terms, safe_names, original_names) {
+  restored <- as.character(terms)
+  for (index in order(nchar(safe_names), decreasing = TRUE)) {
+    prefix <- safe_names[[index]]
+    matched <- startsWith(restored, prefix)
+    restored[matched] <- paste0(original_names[[index]], substring(restored[matched], nchar(prefix) + 1L))
+  }
+  restored
+}
+
+prepare <- function(params, require_predictors = TRUE, risk_column = NULL) {
   df <- omics_read_table(params, "data_path", "data")
   time_col <- as.character(params$time %||% "time")[1]
   event_col <- as.character(params$event %||% "event")[1]
@@ -40,30 +64,44 @@ prepare <- function(params, require_predictors = TRUE) {
   id_col <- as.character(params$id_column %||% colnames(df)[1])[1]
   ids <- if (id_col %in% colnames(df)) as.character(df[[id_col]]) else as.character(seq_len(nrow(df)))
 
-  keep <- c(time_col, event_col, predictors, as.character(params$risk_column %||% character()))
-  keep <- intersect(unique(keep), colnames(df))
-  df <- df[, keep, drop = FALSE]
-  rownames(df) <- make.unique(ids)
-  df[[time_col]] <- as.numeric(df[[time_col]])
-  df[[event_col]] <- as.numeric(df[[event_col]])
-  before <- nrow(df)
-  df <- df[stats::complete.cases(df), , drop = FALSE]
-  dropped <- before - nrow(df)
+  if (!is.null(risk_column) && !risk_column %in% colnames(df)) {
+    stop(sprintf("risk_column '%s' not found.", risk_column), call. = FALSE)
+  }
 
-  if (!all(df[[event_col]] %in% c(0, 1))) {
+  safe <- data.frame(
+    .time = numeric_column(df[[time_col]], time_col),
+    .event = numeric_column(df[[event_col]], event_col),
+    check.names = FALSE
+  )
+  safe_predictors <- sprintf(".predictor_%d", seq_along(predictors))
+  for (index in seq_along(predictors)) {
+    safe[[safe_predictors[[index]]]] <- df[[predictors[[index]]]]
+  }
+  if (!is.null(risk_column)) safe$.risk <- numeric_column(df[[risk_column]], risk_column)
+  rownames(safe) <- make.unique(ids)
+
+  before <- nrow(safe)
+  safe <- safe[stats::complete.cases(safe), , drop = FALSE]
+  dropped <- before - nrow(safe)
+
+  if (!all(safe$.event %in% c(0, 1))) {
     stop("event must be coded 0/1 (1 = event occurred).", call. = FALSE)
   }
-  if (any(df[[time_col]] <= 0, na.rm = TRUE)) {
+  if (any(safe$.time <= 0)) {
     stop("time must be positive; drop or correct non-positive follow-up times.", call. = FALSE)
   }
 
-  events <- sum(df[[event_col]] == 1)
+  events <- sum(safe$.event == 1)
   if (events < 5L) {
     stop(sprintf("Only %d event(s) observed. Prognostic modelling is not interpretable at this event count.", events), call. = FALSE)
   }
 
-  list(df = df, time = time_col, event = event_col, predictors = predictors,
-       events = events, n = nrow(df), dropped = dropped)
+  list(
+    df = safe, time = ".time", event = ".event",
+    predictors = safe_predictors, original_predictors = predictors,
+    risk = if (is.null(risk_column)) NULL else ".risk",
+    events = events, n = nrow(safe), dropped = dropped
+  )
 }
 
 # Events per variable: the standard guard against overfit prognostic models.
@@ -79,7 +117,7 @@ run_lasso_cox <- function(params) {
   omics_require(c("glmnet", "survival"))
   io <- prepare(params)
   x <- stats::model.matrix(
-    stats::as.formula(paste("~", paste(io$predictors, collapse = " + "))),
+    stats::reformulate(io$predictors),
     data = io$df
   )[, -1, drop = FALSE]
   if (ncol(x) < 2L) stop("LASSO needs at least 2 predictor columns after encoding.", call. = FALSE)
@@ -111,8 +149,9 @@ run_lasso_cox <- function(params) {
   cindex <- unname(summary(cox)$concordance[1])
 
   name <- as.character(params$output_name %||% "lasso_cox")[1]
+  selected_labels <- restore_terms(selected, io$predictors, io$original_predictors)
   coef_table <- data.frame(
-    variable = selected,
+    variable = selected_labels,
     coefficient = coefs[selected, 1],
     hazard_ratio = exp(coefs[selected, 1]),
     stringsAsFactors = FALSE
@@ -129,20 +168,36 @@ run_lasso_cox <- function(params) {
   )
 
   km_figure <- NULL
-  if (requireNamespace("survminer", quietly = TRUE)) {
-    surv_df <- io$df
-    surv_df$.time <- surv_df[[io$time]]
-    surv_df$.event <- surv_df[[io$event]]
-    sfit <- survival::survfit(survival::Surv(.time, .event) ~ risk_group, data = surv_df)
-    gg <- survminer::ggsurvplot(
-      sfit, data = surv_df, pval = TRUE, risk.table = TRUE, conf.int = TRUE,
-      palette = c("#b5483a", "#2f5f8f"), legend.title = "Risk",
-      xlab = "Time", ylab = "Survival probability"
-    )
-    km_figure <- omics_save_base_plot(
-      function() print(gg), "survival", paste0(name, "_km"), width = 7, height = 6.5
-    )
-  }
+  omics_require("ggplot2")
+  surv_df <- io$df
+  surv_df$.time <- surv_df[[io$time]]
+  surv_df$.event <- surv_df[[io$event]]
+  sfit <- survival::survfit(survival::Surv(.time, .event) ~ risk_group, data = surv_df)
+  km <- summary(sfit)
+  km_df <- data.frame(
+    time = km$time,
+    survival = km$surv,
+    lower = km$lower,
+    upper = km$upper,
+    risk_group = sub("^risk_group=", "", as.character(km$strata)),
+    stringsAsFactors = FALSE
+  )
+  logrank <- survival::survdiff(survival::Surv(.time, .event) ~ risk_group, data = surv_df)
+  logrank_p <- stats::pchisq(logrank$chisq, df = length(logrank$n) - 1L, lower.tail = FALSE)
+  km_plot <- ggplot2::ggplot(
+    km_df,
+    ggplot2::aes(x = time, y = survival, colour = risk_group, group = risk_group)
+  ) +
+    ggplot2::geom_step(linewidth = 0.8) +
+    ggplot2::scale_colour_manual(values = c(High = "#b5483a", Low = "#2f5f8f")) +
+    ggplot2::annotate("text", x = Inf, y = Inf, label = sprintf("Log-rank P = %.3g", logrank_p),
+                      hjust = 1.1, vjust = 1.5, size = 3.5) +
+    ggplot2::labs(x = "Time", y = "Survival probability", colour = "Risk") +
+    ggplot2::theme_bw(base_size = 11) +
+    ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
+  km_figure <- omics_save_plot(
+    km_plot, "survival", paste0(name, "_km"), width = 7, height = 5.5
+  )
 
   list(
     method = "lasso_cox",
@@ -153,8 +208,8 @@ run_lasso_cox <- function(params) {
     n = io$n,
     events = io$events,
     rows_dropped_missing = io$dropped,
-    candidates = length(io$predictors),
-    selected_variables = omics_arr(selected),
+    candidates = length(io$original_predictors),
+    selected_variables = omics_arr(selected_labels),
     coefficients = coef_table,
     concordance_index = cindex,
     risk_group_cut = "median risk score",
@@ -163,24 +218,24 @@ run_lasso_cox <- function(params) {
     cv_figure = cv_figure,
     km_figure = km_figure,
     warnings = omics_arr(c(
-      epv_warning(io$events, length(selected)),
+      epv_warning(io$events, length(io$original_predictors)),
       "The C-index above is computed on the same data used to fit the model and is optimistic. Report an external or held-out validation C-index before claiming prognostic value."
     ))
   )
 }
 
 run_timeroc <- function(params) {
-  omics_require(c("timeROC"))
+  omics_require(c("timeROC", "survival"))
+  suppressPackageStartupMessages(library(survival))
   risk_column <- as.character(params$risk_column %||% "risk_score")[1]
-  params$predictors <- params$predictors %||% risk_column
-  io <- prepare(params, require_predictors = FALSE)
-  if (!risk_column %in% colnames(io$df)) {
-    stop(sprintf("risk_column '%s' not found. Run lasso_cox first or supply a score column.", risk_column), call. = FALSE)
-  }
+  io <- prepare(params, require_predictors = FALSE, risk_column = risk_column)
 
   times <- as.numeric(params$times %||% stats::quantile(io$df[[io$time]], c(0.25, 0.5, 0.75), names = FALSE))
+  if (any(!is.finite(times)) || any(times <= 0) || any(times > max(io$df[[io$time]]))) {
+    stop("times must be positive and no greater than the maximum follow-up time.", call. = FALSE)
+  }
   roc <- timeROC::timeROC(
-    T = io$df[[io$time]], delta = io$df[[io$event]], marker = io$df[[risk_column]],
+    T = io$df[[io$time]], delta = io$df[[io$event]], marker = io$df[[io$risk]],
     cause = 1, times = times, iid = TRUE
   )
   auc <- as.numeric(roc$AUC)
@@ -226,7 +281,7 @@ run_nomogram <- function(params) {
   old <- options(datadist = dd)
   on.exit(options(old), add = TRUE)
 
-  formula <- stats::as.formula(paste("survival::Surv(.time, .event) ~", paste(io$predictors, collapse = " + ")))
+  formula <- survival_formula(io$predictors)
   fit <- rms::cph(formula, data = df, x = TRUE, y = TRUE, surv = TRUE)
   times <- as.numeric(params$times %||% stats::quantile(df$.time, c(0.5, 0.75), names = FALSE))
   surv_fun <- rms::Survival(fit)
@@ -244,12 +299,12 @@ run_nomogram <- function(params) {
     method = "nomogram",
     n = io$n,
     events = io$events,
-    predictors = omics_arr(io$predictors),
+    predictors = omics_arr(io$original_predictors),
     times = omics_arr(times),
     concordance_index = unname(fit$stats["Dxy"] / 2 + 0.5),
     figure = figure,
     warnings = omics_arr(c(
-      epv_warning(io$events, length(io$predictors)),
+      epv_warning(io$events, length(io$original_predictors)),
       "A nomogram displays the fitted model; it is not itself validation. Pair it with a calibration curve and external validation."
     ))
   )
@@ -266,8 +321,15 @@ run_calibration <- function(params) {
   on.exit(options(old), add = TRUE)
 
   horizon <- as.numeric((params$times %||% stats::median(df$.time))[1])
-  formula <- stats::as.formula(paste("survival::Surv(.time, .event) ~", paste(io$predictors, collapse = " + ")))
-  units <- as.integer(params$groups %||% max(20, floor(io$n / 5)))
+  if (!is.finite(horizon) || horizon <= 0 || horizon > max(df$.time)) {
+    stop("Calibration horizon must be positive and no greater than the maximum follow-up time.", call. = FALSE)
+  }
+  formula <- survival_formula(io$predictors)
+  groups <- as.integer(params$groups %||% 5)
+  if (!is.finite(groups) || groups < 2L || groups > io$n) {
+    stop("groups must be between 2 and the number of complete observations.", call. = FALSE)
+  }
+  units <- max(2L, floor(io$n / groups))
   fit <- rms::cph(formula, data = df, x = TRUE, y = TRUE, surv = TRUE, time.inc = horizon)
   cal <- rms::calibrate(fit, cmethod = "KM", method = "boot", u = horizon, m = units, B = as.integer(params$bootstrap %||% 200))
 
@@ -286,6 +348,7 @@ run_calibration <- function(params) {
     n = io$n,
     events = io$events,
     horizon = horizon,
+    groups = groups,
     per_group = units,
     bootstrap = as.integer(params$bootstrap %||% 200),
     figure = figure,
@@ -298,20 +361,23 @@ run_dca <- function(params) {
   io <- prepare(params)
   df <- io$df
   horizon <- as.numeric((params$times %||% stats::median(df[[io$time]]))[1])
-  formula <- stats::as.formula(paste("survival::Surv(", io$time, ",", io$event, ") ~", paste(io$predictors, collapse = " + ")))
+  if (!is.finite(horizon) || horizon <= 0 || horizon > max(df[[io$time]])) {
+    stop("DCA horizon must be positive and no greater than the maximum follow-up time.", call. = FALSE)
+  }
+  formula <- survival_formula(io$predictors)
   fit <- survival::coxph(formula, data = df)
   surv <- summary(survival::survfit(fit, newdata = df), times = horizon)
   predicted_risk <- 1 - as.numeric(surv$surv)
 
   thresholds <- as.numeric(params$thresholds %||% seq(0.01, 0.60, by = 0.01))
-  km_overall <- summary(survival::survfit(stats::as.formula(paste("survival::Surv(", io$time, ",", io$event, ") ~ 1")), data = df), times = horizon)
+  km_overall <- summary(survival::survfit(survival::Surv(.time, .event) ~ 1, data = df), times = horizon)
   event_rate <- 1 - as.numeric(km_overall$surv)
 
   net_benefit <- vapply(thresholds, function(pt) {
     flagged <- predicted_risk >= pt
     if (!any(flagged)) return(0)
     sub <- df[flagged, , drop = FALSE]
-    km <- summary(survival::survfit(stats::as.formula(paste("survival::Surv(", io$time, ",", io$event, ") ~ 1")), data = sub), times = horizon)
+    km <- summary(survival::survfit(survival::Surv(.time, .event) ~ 1, data = sub), times = horizon)
     rate <- 1 - as.numeric(km$surv)
     if (!length(rate) || is.na(rate)) return(NA_real_)
     tp <- rate * mean(flagged)

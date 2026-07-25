@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -22,7 +23,7 @@ PROTOCOL_VERSION = "2024-11-05"
 SERVER_VERSION = "0.1.0"
 
 R_PACKAGE_GROUPS: dict[str, list[str]] = {
-    "core": ["jsonlite", "ggplot2"],
+    "core": ["jsonlite", "ggplot2", "svglite"],
     "deg": ["DESeq2", "edgeR", "limma"],
     "enrich": ["clusterProfiler", "enrichplot", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA", "msigdbr"],
     "plot": ["pheatmap", "ggrepel", "ggvenn", "RColorBrewer", "svglite"],
@@ -48,6 +49,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "method": {"type": "string", "enum": ["deseq2", "edger", "limma"], "default": "deseq2"},
+                "matrix_type": {"type": "string", "enum": ["counts", "normalized"]},
                 "matrix_path": {"type": "string", "description": "Gene-by-sample matrix; gene IDs in column 1."},
                 "matrix": {"type": "array", "items": {"type": "object"}},
                 "coldata_path": {"type": "string", "description": "Sample metadata; sample IDs in column 1."},
@@ -62,7 +64,7 @@ TOOLS: list[dict[str, Any]] = [
                 "voom": {"type": "boolean", "default": False},
                 "output_name": {"type": "string"},
             },
-            "required": ["group_column", "treat", "control"],
+            "required": ["matrix_type", "group_column", "treat", "control"],
         },
     },
     {
@@ -73,6 +75,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "method": {"type": "string", "enum": ["go", "kegg", "reactome", "gsea", "gsva", "ssgsea"], "default": "go"},
                 "species": {"type": "string", "enum": ["human", "mouse"]},
+                "id_type": {"type": "string", "enum": ["SYMBOL", "ENSEMBL", "ENTREZID"]},
                 "genes": {"type": "array", "items": {"type": "string"}},
                 "universe": {"type": "array", "items": {"type": "string"}},
                 "ontology": {"type": "string", "enum": ["BP", "CC", "MF", "ALL"], "default": "BP"},
@@ -82,13 +85,14 @@ TOOLS: list[dict[str, Any]] = [
                 "metric_column": {"type": "string", "default": "log2FoldChange"},
                 "matrix_path": {"type": "string"},
                 "matrix": {"type": "array", "items": {"type": "object"}},
+                "matrix_type": {"type": "string", "enum": ["counts", "normalized"]},
                 "gene_sets": {"type": "object"},
                 "pvalue": {"type": "number", "default": 0.05},
                 "qvalue": {"type": "number", "default": 0.2},
                 "top_n": {"type": "integer", "default": 10},
                 "output_name": {"type": "string"},
             },
-            "required": ["species"],
+            "required": ["species", "id_type"],
         },
     },
     {
@@ -102,6 +106,7 @@ TOOLS: list[dict[str, Any]] = [
                 "deg": {"type": "array", "items": {"type": "object"}},
                 "matrix_path": {"type": "string"},
                 "matrix": {"type": "array", "items": {"type": "object"}},
+                "matrix_type": {"type": "string", "enum": ["counts", "normalized"]},
                 "coldata_path": {"type": "string"},
                 "coldata": {"type": "array", "items": {"type": "object"}},
                 "sets": {"type": "object", "description": "venn: 2-4 named gene vectors."},
@@ -147,7 +152,7 @@ TOOLS: list[dict[str, Any]] = [
                 "times": {"type": "array", "items": {"type": "number"}},
                 "thresholds": {"type": "array", "items": {"type": "number"}},
                 "bootstrap": {"type": "integer", "default": 200},
-                "groups": {"type": "integer"},
+                "groups": {"type": "integer", "description": "Requested number of calibration groups."},
                 "width": {"type": "number"},
                 "height": {"type": "number"},
                 "output_name": {"type": "string"},
@@ -289,7 +294,10 @@ def env_tool(args: dict[str, Any]) -> dict[str, Any]:
         "installed": installed,
         "missing": missing,
         "ready": not missing,
-        "install_command": None if not missing else f"cd {ROOT} && Rscript r/bootstrap.R {' '.join(sorted(set(missing)))}",
+        "install_command": None if not missing else (
+            f"cd {shlex.quote(str(ROOT))} && {shlex.quote(rscript)} r/bootstrap.R "
+            + " ".join(sorted(set(missing)))
+        ),
         "output_dir": str(OUTPUT_DIR),
     }
 

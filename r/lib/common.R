@@ -73,17 +73,15 @@ omics_save_plot <- function(plot, subdir, name, width = 7, height = 5) {
 
 # For base-graphics output (maftools, WGCNA, forestplot, nomogram, ...).
 omics_save_base_plot <- function(draw, subdir, name, width = 7, height = 5) {
+  omics_require("svglite")
   dir <- omics_output_dir(subdir)
   name <- omics_safe_name(name)
   png_path <- file.path(dir, paste0(name, ".png"))
   svg_path <- file.path(dir, paste0(name, ".svg"))
   grDevices::png(png_path, width = width, height = height, units = "in", res = 300, bg = "white")
-  on.exit(try(grDevices::dev.off(), silent = TRUE), add = TRUE)
-  draw()
-  grDevices::dev.off()
-  grDevices::svg(svg_path, width = width, height = height, bg = "white")
-  draw()
-  grDevices::dev.off()
+  tryCatch(draw(), finally = grDevices::dev.off())
+  svglite::svglite(svg_path, width = width, height = height, bg = "white")
+  tryCatch(draw(), finally = grDevices::dev.off())
   list(png = png_path, svg = svg_path)
 }
 
@@ -97,7 +95,15 @@ omics_save_table <- function(df, subdir, name) {
 
 # Read a matrix from an explicit path or from inline records.
 # Bioinformatics matrices are gene-by-sample with gene IDs in the first column.
-omics_read_matrix <- function(params, path_key = "matrix_path", records_key = "matrix") {
+omics_matrix_type <- function(params) {
+  matrix_type <- tolower(as.character(params$matrix_type %||% "")[1])
+  if (!matrix_type %in% c("counts", "normalized")) {
+    stop("matrix_type is required and must be 'counts' or 'normalized'.", call. = FALSE)
+  }
+  matrix_type
+}
+
+omics_read_matrix <- function(params, path_key = "matrix_path", records_key = "matrix", matrix_type = NULL) {
   path <- params[[path_key]]
   if (!is.null(path) && nzchar(path)) {
     path <- path.expand(path)
@@ -111,14 +117,29 @@ omics_read_matrix <- function(params, path_key = "matrix_path", records_key = "m
   }
   if (ncol(df) < 2L) stop("Matrix needs an ID column plus at least one sample column", call. = FALSE)
   ids <- as.character(df[[1]])
-  mat <- as.matrix(df[, -1, drop = FALSE])
-  storage.mode(mat) <- "double"
+  values <- df[, -1, drop = FALSE]
+  converted <- lapply(values, function(column) suppressWarnings(as.numeric(column)))
+  bad_columns <- names(values)[vapply(
+    seq_along(values),
+    function(index) any(!is.na(values[[index]]) & is.na(converted[[index]])),
+    logical(1)
+  )]
+  if (length(bad_columns)) {
+    stop(sprintf("Matrix contains non-numeric values in column(s): %s", paste(bad_columns, collapse = ", ")), call. = FALSE)
+  }
+  mat <- as.matrix(as.data.frame(converted, check.names = FALSE))
+  if (anyNA(mat)) {
+    stop("Matrix contains missing values; impute or remove them before analysis.", call. = FALSE)
+  }
   rownames(mat) <- ids
-  # Collapse duplicated gene symbols by highest mean expression, the usual convention.
   if (anyDuplicated(ids)) {
-    keep <- order(rowMeans(mat, na.rm = TRUE), decreasing = TRUE)
-    mat <- mat[keep, , drop = FALSE]
-    mat <- mat[!duplicated(rownames(mat)), , drop = FALSE]
+    if (identical(matrix_type, "counts")) {
+      mat <- rowsum(mat, group = ids, reorder = FALSE)
+    } else {
+      keep <- order(rowMeans(mat), decreasing = TRUE)
+      mat <- mat[keep, , drop = FALSE]
+      mat <- mat[!duplicated(rownames(mat)), , drop = FALSE]
+    }
   }
   mat
 }
@@ -143,13 +164,9 @@ omics_assert_counts <- function(mat, method) {
   if (any(mat < 0, na.rm = TRUE)) {
     stop(sprintf("%s requires raw integer counts, but the matrix contains negative values (looks log-transformed or centred). Use limma instead.", method), call. = FALSE)
   }
-  finite <- mat[is.finite(mat)]
-  if (length(finite) && max(finite) < 50) {
-    stop(sprintf("%s requires raw integer counts, but the maximum value is %.3f (looks log-transformed or TPM-scaled). Use limma instead.", method, max(finite)), call. = FALSE)
-  }
   fractional <- abs(mat - round(mat)) > 1e-8
-  if (mean(fractional, na.rm = TRUE) > 0.01) {
-    stop(sprintf("%s requires integer counts, but the matrix is mostly non-integer (looks like TPM/FPKM/normalised data). Use limma instead.", method), call. = FALSE)
+  if (any(fractional, na.rm = TRUE)) {
+    stop(sprintf("%s requires raw integer counts, but the matrix contains non-integer values. Use limma with matrix_type='normalized' instead.", method), call. = FALSE)
   }
   invisible(TRUE)
 }

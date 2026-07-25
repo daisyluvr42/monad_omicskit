@@ -91,7 +91,14 @@ plot_volcano <- function(params) {
 
 plot_heatmap <- function(params) {
   omics_require(c("pheatmap"))
-  mat <- omics_read_matrix(params)
+  matrix_type <- omics_matrix_type(params)
+  mat <- omics_read_matrix(params, matrix_type = matrix_type)
+  transformation <- "none"
+  if (matrix_type == "counts") {
+    omics_assert_counts(mat, "Heatmap count input")
+    mat <- log2(mat + 1)
+    transformation <- "log2(count + 1)"
+  }
   genes <- params$genes
   if (!is.null(genes)) {
     genes <- unique(as.character(genes))
@@ -114,7 +121,11 @@ plot_heatmap <- function(params) {
   if (!is.null(params$coldata) || !is.null(params$coldata_path)) {
     coldata <- omics_read_table(params, "coldata_path", "coldata")
     rownames(coldata) <- as.character(coldata[[1]])
-    coldata <- coldata[intersect(colnames(mat), rownames(coldata)), , drop = FALSE]
+    missing_samples <- setdiff(colnames(mat), rownames(coldata))
+    if (length(missing_samples)) {
+      stop(sprintf("Sample annotation is missing: %s", paste(missing_samples, collapse = ", ")), call. = FALSE)
+    }
+    coldata <- coldata[colnames(mat), , drop = FALSE]
     if (!is.null(ann_cols)) {
       ann_cols <- intersect(as.character(ann_cols), colnames(coldata))
       if (length(ann_cols)) annotation <- coldata[, ann_cols, drop = FALSE]
@@ -151,6 +162,8 @@ plot_heatmap <- function(params) {
     type = "heatmap",
     genes = nrow(mat),
     samples = ncol(mat),
+    matrix_type = matrix_type,
+    transformation = transformation,
     scaled = if (scale_rows) "row z-score" else "none",
     dropped_zero_variance = omics_arr(dropped),
     figure = figure,
@@ -203,7 +216,14 @@ plot_venn <- function(params) {
 
 plot_pca <- function(params) {
   omics_require(c("ggplot2"))
-  mat <- omics_read_matrix(params)
+  matrix_type <- omics_matrix_type(params)
+  mat <- omics_read_matrix(params, matrix_type = matrix_type)
+  transformation <- "none"
+  if (matrix_type == "counts") {
+    omics_assert_counts(mat, "PCA count input")
+    mat <- log2(mat + 1)
+    transformation <- "log2(count + 1)"
+  }
   variances <- apply(mat, 1, stats::var, na.rm = TRUE)
   mat <- mat[is.finite(variances) & variances > 0, , drop = FALSE]
   if (nrow(mat) < 2L) stop("Need at least 2 variable genes for PCA.", call. = FALSE)
@@ -222,7 +242,8 @@ plot_pca <- function(params) {
     coldata <- omics_read_table(params, "coldata_path", "coldata")
     coldata$.sample <- as.character(coldata[[1]])
     if (colour_column %in% colnames(coldata)) {
-      scores <- merge(scores, coldata[, c(".sample", colour_column)], by.x = "sample", by.y = ".sample", all.x = TRUE)
+      matched <- match(scores$sample, coldata$.sample)
+      scores[[colour_column]] <- coldata[[colour_column]][matched]
     } else {
       colour_column <- ""
     }
@@ -257,6 +278,8 @@ plot_pca <- function(params) {
     type = "pca",
     samples = ncol(mat),
     genes_used = nrow(mat),
+    matrix_type = matrix_type,
+    transformation = transformation,
     variance_explained = list(PC1 = percent[1], PC2 = percent[2], PC3 = if (length(percent) >= 3) percent[3] else NULL),
     scores = scores,
     figure = figure,

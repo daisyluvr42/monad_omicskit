@@ -47,7 +47,7 @@ Omics Kit 是一套面向 AI agent 的组学分析 MCP 工具 + Skill。它让 a
 
 > 用户：这是我从 GEO 下的 count 矩阵和样本表，帮我比较疾病组和对照组。
 >
-> 需准备：`counts.csv`（第一列基因符号，其余列为样本）、`samples.csv`（第一列样本名，含分组列）
+> 需准备：`counts.csv`（第一列基因符号，其余列为样本）、`samples.csv`（第一列样本名，含分组列），调用时传 `matrix_type: "counts"`
 >
 > 得到：完整结果表 + 显著基因表（CSV），上调/下调基因数，前 25 个基因预览，实际使用的设计公式和校正方法
 
@@ -55,7 +55,7 @@ Omics Kit 是一套面向 AI agent 的组学分析 MCP 工具 + Skill。它让 a
 
 > 用户：把上调的这批基因做 KEGG 富集。
 >
-> 需准备：基因符号列表、物种（human/mouse）
+> 需准备：基因列表、物种（human/mouse）、真实 ID 类型（`SYMBOL` / `ENSEMBL` / `ENTREZID`）
 >
 > 得到：富集通路表（含 P、校正 P、基因数、通路内基因）+ Top10 dotplot，以及未能映射的符号清单
 
@@ -116,8 +116,8 @@ python3 mcp/omics.py uninstall workbuddy
 ## 边界（Agent 必须遵守）
 
 - **基因符号、通路 ID、模型系数只能来自工具输出**，不得由模型生成
-- **物种必须显式确认**，人鼠基因符号不通用
-- **数据类型判断错误会使整条结果链失效**：count 走 DESeq2/edgeR，芯片和已标准化数据走 limma
+- **物种和基因 ID 类型必须显式确认**，人鼠基因标识不通用
+- **数据类型必须通过 `matrix_type` 显式传入**：`counts` 走 DESeq2/edgeR 或 limma-voom，`normalized` 走 limma
 - **富集是关联不是机制**，不能写成"证实该通路驱动了表型"
 - **训练集的 C-index 和 AUC 是乐观估计**，必须说明并提示外部验证
 - **单细胞全流程不在工具层运行**：生成脚本交用户执行，再把下游结果拿回来分析

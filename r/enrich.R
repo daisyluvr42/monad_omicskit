@@ -19,24 +19,36 @@
 OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
-# Symbol -> ENTREZ through the OrgDb, never through model memory.
-map_symbols <- function(symbols, orgdb) {
+input_id_type <- function(params) {
+  id_type <- toupper(as.character(params$id_type %||% "")[1])
+  if (!id_type %in% c("SYMBOL", "ENSEMBL", "ENTREZID")) {
+    stop("id_type is required and must be SYMBOL, ENSEMBL, or ENTREZID.", call. = FALSE)
+  }
+  id_type
+}
+
+map_ids <- function(ids, orgdb, id_type) {
   omics_require(c("clusterProfiler", orgdb))
-  symbols <- unique(stats::na.omit(as.character(symbols)))
-  symbols <- symbols[nzchar(symbols)]
-  if (!length(symbols)) stop("No gene symbols supplied.", call. = FALSE)
-  mapped <- suppressWarnings(suppressMessages(
-    clusterProfiler::bitr(symbols, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = orgdb)
-  ))
+  ids <- unique(stats::na.omit(as.character(ids)))
+  ids <- ids[nzchar(ids)]
+  if (!length(ids)) stop("No gene identifiers supplied.", call. = FALSE)
+  if (id_type == "ENTREZID") {
+    mapped <- data.frame(INPUT = ids, ENTREZID = ids, stringsAsFactors = FALSE)
+  } else {
+    mapped <- suppressWarnings(suppressMessages(
+      clusterProfiler::bitr(ids, fromType = id_type, toType = "ENTREZID", OrgDb = orgdb)
+    ))
+    if (nrow(mapped)) colnames(mapped)[colnames(mapped) == id_type] <- "INPUT"
+  }
   if (!nrow(mapped)) {
-    stop("None of the supplied symbols mapped to ENTREZ IDs. Check the species and that these are official gene symbols.", call. = FALSE)
+    stop(sprintf("None of the supplied %s identifiers mapped to ENTREZID. Check species and identifier type.", id_type), call. = FALSE)
   }
   list(
     mapped = mapped,
-    entrez = mapped$ENTREZID,
-    input_n = length(symbols),
-    mapped_n = nrow(mapped),
-    unmapped = setdiff(symbols, mapped$SYMBOL)
+    entrez = unique(mapped$ENTREZID),
+    input_n = length(ids),
+    mapped_n = length(unique(mapped$INPUT)),
+    unmapped = setdiff(ids, mapped$INPUT)
   )
 }
 
@@ -66,11 +78,12 @@ dot_plot <- function(df, title, top_n) {
 run_ora <- function(params, org, method) {
   genes <- params$genes
   if (is.null(genes)) stop("genes is required for over-representation analysis.", call. = FALSE)
-  mapping <- map_symbols(genes, org$orgdb)
+  id_type <- input_id_type(params)
+  mapping <- map_ids(genes, org$orgdb, id_type)
 
   universe_entrez <- NULL
   if (!is.null(params$universe)) {
-    universe_entrez <- map_symbols(params$universe, org$orgdb)$entrez
+    universe_entrez <- map_ids(params$universe, org$orgdb, id_type)$entrez
   }
 
   pvalue <- as.numeric(params$pvalue %||% 0.05)
@@ -119,6 +132,7 @@ run_ora <- function(params, org, method) {
   list(
     method = method,
     species = org$species,
+    id_type = id_type,
     ontology = if (method == "go") toupper(as.character(params$ontology %||% "BP")[1]) else NULL,
     genes_supplied = mapping$input_n,
     genes_mapped = mapping$mapped_n,
@@ -138,6 +152,7 @@ run_ora <- function(params, org, method) {
 
 run_gsea <- function(params, org) {
   omics_require(c("clusterProfiler", org$orgdb))
+  id_type <- input_id_type(params)
   tab <- omics_read_table(params, "ranked_path", "ranked")
   gene_column <- as.character(params$gene_column %||% colnames(tab)[1])[1]
   metric_column <- as.character(params$metric_column %||% "log2FoldChange")[1]
@@ -146,10 +161,17 @@ run_gsea <- function(params, org) {
       stop(sprintf("Column '%s' not found. Available: %s", col, paste(colnames(tab), collapse = ", ")), call. = FALSE)
     }
   }
-  mapping <- map_symbols(tab[[gene_column]], org$orgdb)
-  merged <- merge(tab, mapping$mapped, by.x = gene_column, by.y = "SYMBOL")
-  ranks <- stats::setNames(as.numeric(merged[[metric_column]]), merged$ENTREZID)
-  ranks <- ranks[is.finite(ranks)]
+  metric <- suppressWarnings(as.numeric(tab[[metric_column]]))
+  invalid_metric <- !is.na(tab[[metric_column]]) & is.na(metric)
+  if (any(invalid_metric)) {
+    stop(sprintf("Ranking column '%s' contains non-numeric values.", metric_column), call. = FALSE)
+  }
+  tab[[metric_column]] <- metric
+  mapping <- map_ids(tab[[gene_column]], org$orgdb, id_type)
+  merged <- merge(tab, mapping$mapped, by.x = gene_column, by.y = "INPUT")
+  merged <- merged[is.finite(merged[[metric_column]]), , drop = FALSE]
+  grouped <- split(merged[[metric_column]], merged$ENTREZID)
+  ranks <- vapply(grouped, function(values) values[[which.max(abs(values))]], numeric(1))
   ranks <- sort(ranks, decreasing = TRUE)
   if (length(ranks) < 50) {
     stop(sprintf("Only %d ranked genes after mapping. GSEA needs the full ranked list, not a filtered DEG subset.", length(ranks)), call. = FALSE)
@@ -175,6 +197,7 @@ run_gsea <- function(params, org) {
   list(
     method = "gsea",
     species = org$species,
+    id_type = id_type,
     genes_ranked = length(ranks),
     ranking_metric = metric_column,
     thresholds = list(pvalue = pvalue, padj_method = "BH"),
@@ -191,18 +214,29 @@ run_gsea <- function(params, org) {
 
 run_gsva <- function(params, org, method) {
   omics_require(c("GSVA"))
-  mat <- omics_read_matrix(params)
+  id_type <- input_id_type(params)
+  matrix_type <- omics_matrix_type(params)
+  mat <- omics_read_matrix(params, matrix_type = matrix_type)
   gene_sets <- params$gene_sets
   if (is.null(gene_sets)) {
     stop("gene_sets is required: a named list of gene symbol vectors (e.g. Hallmark sets).", call. = FALSE)
   }
   gene_sets <- lapply(gene_sets, function(x) unique(as.character(x)))
   covered <- vapply(gene_sets, function(g) sum(g %in% rownames(mat)), integer(1))
-  if (all(covered == 0)) {
+  required <- vapply(
+    gene_sets,
+    function(g) as.integer(min(length(g), max(5L, ceiling(0.2 * length(g))))),
+    integer(1)
+  )
+  usable <- covered >= required
+  dropped <- names(gene_sets)[!usable]
+  gene_sets <- gene_sets[usable]
+  covered <- covered[usable]
+  if (!length(gene_sets)) {
     stop("No gene-set members are present in the expression matrix. Check that both use the same identifier type.", call. = FALSE)
   }
 
-  kcdf <- if (max(mat, na.rm = TRUE) > 50) "Poisson" else "Gaussian"
+  kcdf <- if (matrix_type == "counts") "Poisson" else "Gaussian"
   scores <- if (utils::packageVersion("GSVA") >= "1.52.0") {
     par <- if (method == "gsva") {
       GSVA::gsvaParam(exprData = mat, geneSets = gene_sets, kcdf = kcdf)
@@ -220,8 +254,12 @@ run_gsva <- function(params, org, method) {
 
   list(
     method = method,
+    species = org$species,
+    id_type = id_type,
+    matrix_type = matrix_type,
     gene_sets = length(gene_sets),
     genes_per_set_found = as.list(covered),
+    gene_sets_dropped_low_coverage = omics_arr(dropped),
     samples = ncol(mat),
     kcdf = if (method == "gsva") kcdf else NULL,
     score_table = table_path,

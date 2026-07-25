@@ -14,10 +14,10 @@ description: 当用户要做生信/组学分析——差异表达（DESeq2/edgeR
 ## 开始前必须确认
 
 1. **物种**：human 还是 mouse。人鼠基因符号不通用，工具会强制要求这个参数，不要替用户假定。
-2. **数据类型**：原始 count、TPM/FPKM、芯片信号值，还是已经 log2 转换过。**这一条决定方法选择，判断错了整条结果链都是错的。**
+2. **数据类型**：原始 count 传 `matrix_type: "counts"`；TPM/FPKM、芯片信号值或已经 log2 转换的数据传 `matrix_type: "normalized"`。**这一条决定方法选择，判断错了整条结果链都是错的。**
 3. **矩阵方向**：基因在行、样本在列，第一列是基因 ID。
 4. **分组信息**：样本表的哪一列是分组，比较方向是谁 vs 谁。
-5. **基因 ID 类型**：SYMBOL、ENSEMBL 还是 ENTREZ。
+5. **基因 ID 类型**：富集分析必须显式传 `id_type: "SYMBOL"`、`"ENSEMBL"` 或 `"ENTREZID"`。
 
 会话中第一次分析前先调用 `omics_env`。缺包时把返回的 `install_command` 原样交给用户，不要自己猜安装命令。R 没装时如实说明，不要假装能算。
 
@@ -42,13 +42,13 @@ description: 当用户要做生信/组学分析——差异表达（DESeq2/edgeR
 - **芯片、TPM/FPKM、已标准化或已 log2**：`limma`
 - **count 且样本量大**：`limma` 配 `voom: true`
 
-工具会检查数值特征，发现把已转换数据喂给 DESeq2/edgeR 时直接报错。**报错时不要绕过，回去确认数据类型**——这个检查拦的是生信里最常见的致命错误。
+`omics_deg` 强制要求 `matrix_type`。方法和数据类型冲突时工具直接拒绝；**不要绕过，回去确认数据类型**。
 
 每组至少 2 个重复。批次、性别、年龄等混杂通过 `covariates` 进模型，不要先分层再手工比较。
 
 ### 功能富集（`omics_enrich`）
 
-- **有明确 DEG 列表**：`go` / `kegg` / `reactome`（过表达分析 ORA）
+- **有明确 DEG 列表**：`go` / `kegg` / `reactome`（过表达分析 ORA），同时传真实的 `id_type`
 - **有完整排序基因列表**：`gsea`。GSEA 必须用全部基因的排序结果，**不能只喂筛选后的 DEG**，工具会拒绝过短的列表
 - **要每个样本的通路活性**：`gsva` 或 `ssgsea`，输出后再做组间比较
 
@@ -62,6 +62,8 @@ ORA 默认背景是全基因组。如果实验只检测了部分基因（如靶�
 - `heatmap`：表达矩阵 + 基因列表 → 热图，默认行 z-score
 - `venn`：2–4 组基因列表 → Venn 图**加每个区域的基因归属表**
 - `pca`：表达矩阵 → 样本 PCA
+
+热图和 PCA 都必须传 `matrix_type`。count 矩阵会先做 `log2(count + 1)`；normalized 矩阵不再重复转换。
 
 **出图前先看 PCA。** 如果样本按批次而不是按分组分开，先处理批次效应再解读差异。
 
