@@ -23,7 +23,7 @@ MonadOmics 0.2.0 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个�
 需要 Python 3.11+；实际分析还需要 R 4.2+ 和对应 R 包。使用 GitHub CLI 克隆仓库并安装：
 
 ```bash
-gh repo clone daisyluvr42/monad_omicskit
+gh repo clone https://github.com/daisyluvr42/monad_omicskit.git
 cd monad_omicskit
 python3 install.py install
 python3 install.py run --version
