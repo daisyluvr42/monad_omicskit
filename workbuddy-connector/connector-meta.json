@@ -1,0 +1,24 @@
+{
+  "name": "MonadOmics 生信工具箱",
+  "name_zh": "MonadOmics 生信工具箱",
+  "name_en": "MonadOmics Bioinformatics Kit",
+  "description": "在本机完成表达矩阵质控、差异表达、功能富集、组学作图和预后建模，输出可复核的数据表与图形。",
+  "description_zh": "在本机完成表达矩阵质控、差异表达、功能富集、组学作图和预后建模，输出可复核的数据表与图形。",
+  "description_en": "Local expression analysis, enrichment, figures and prognostic models with R-derived tables and plots.",
+  "source": "monadomics",
+  "type": "cli",
+  "version": "0.2.0",
+  "minWorkbuddyVersion": "5.0.0",
+  "examples_zh": [
+    "检查我的生信分析环境，告诉我差异表达分析还缺哪些 R 包。",
+    "用这份原始 count 矩阵和样本表比较疾病组与对照组，并生成 PCA、火山图和热图。",
+    "对这批人类上调基因做 GO 富集，用实际检测到的基因作背景，并报告未映射的 ID。",
+    "用这份生存数据和候选基因建立 LASSO-Cox 模型，报告事件数、系数和验证限制。"
+  ],
+  "examples_en": [
+    "Check my bioinformatics environment and list the R packages missing for differential expression.",
+    "Compare disease and control groups using these raw counts and sample annotations, then make PCA, volcano and heatmap figures.",
+    "Run GO enrichment for these human genes using measured genes as the background, and report unmapped IDs.",
+    "Build a LASSO-Cox model from this survival table and candidate genes, reporting events, coefficients and validation limits."
+  ]
+}

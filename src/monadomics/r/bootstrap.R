@@ -1,28 +1,28 @@
 #!/usr/bin/env Rscript
-# Install the R packages Scholar's bioinformatics tools depend on.
+# Install the R packages MonadOmics bioinformatics tools depend on.
 #
 #   Rscript r/bootstrap.R              # core + deg + enrich + plot + survival
 #   Rscript r/bootstrap.R enrich       # one group
 #   Rscript r/bootstrap.R DESeq2 limma # explicit packages
 #   Rscript r/bootstrap.R --check      # report status, install nothing
 #
-# Kept out of the Scholar installer on purpose: a first Bioconductor build can
-# take 20+ minutes and must not be able to fail the MCP install.
+# Run separately from the connector init: Bioconductor installation can take
+# more than 20 minutes.
 
 GROUPS <- list(
-  core = c("jsonlite", "ggplot2"),
+  core = c("jsonlite", "ggplot2", "svglite"),
   deg = c("DESeq2", "edgeR", "limma"),
-  enrich = c("clusterProfiler", "enrichplot", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA", "msigdbr"),
+  enrich = c("clusterProfiler", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA"),
   # svglite backs ggsave's SVG device; without it every figure call fails at save time.
-  plot = c("pheatmap", "ggrepel", "ggvenn", "RColorBrewer", "svglite"),
-  survival = c("survival", "survminer", "glmnet", "timeROC", "rms")
+  plot = c("pheatmap", "ggrepel", "ggvenn", "svglite"),
+  survival = c("survival", "glmnet", "timeROC", "rms")
 )
 
 DEFAULT_GROUPS <- c("core", "deg", "enrich", "plot", "survival")
 
 # Bioconductor packages need BiocManager; everything else comes from CRAN.
 BIOC <- c(
-  "DESeq2", "edgeR", "limma", "clusterProfiler", "enrichplot",
+  "DESeq2", "edgeR", "limma", "clusterProfiler",
   "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA"
 )
 
@@ -47,24 +47,6 @@ report <- function(pkgs) {
   }
   cat(sprintf("\n%d/%d installed\n", sum(have), length(have)))
   invisible(have)
-}
-
-# A crashed install leaves 00LOCK-<pkg> behind, and every later attempt at that
-# package fails until it is removed.
-clear_stale_locks <- function() {
-  cleared <- character()
-  for (lib in .libPaths()) {
-    locks <- list.files(lib, pattern = "^00LOCK", full.names = TRUE)
-    for (lock in locks) {
-      if (unlink(lock, recursive = TRUE, force = TRUE) == 0) {
-        cleared <- c(cleared, basename(lock))
-      }
-    }
-  }
-  if (length(cleared)) {
-    cat(sprintf("Cleared %d stale install lock(s): %s\n", length(cleared), paste(cleared, collapse = ", ")))
-  }
-  invisible(cleared)
 }
 
 warn_if_source_only <- function() {
@@ -95,12 +77,20 @@ main <- function() {
   # mid-download on slower or unstable connections.
   options(timeout = max(getOption("timeout"), 1800))
   warn_if_source_only()
-  clear_stale_locks()
   missing <- pkgs[!status(pkgs)]
   if (!length(missing)) {
     cat("All requested R packages are already installed.\n")
     return(invisible(NULL))
   }
+
+  user_lib <- strsplit(Sys.getenv("R_LIBS_USER"), .Platform$path.sep, fixed = TRUE)[[1]][1]
+  if (is.na(user_lib) || !nzchar(user_lib)) {
+    stop("Set R_LIBS_USER to a writable personal R library before installing packages.", call. = FALSE)
+  }
+  user_lib <- path.expand(user_lib)
+  dir.create(user_lib, recursive = TRUE, showWarnings = FALSE)
+  if (file.access(user_lib, 2) != 0) stop("R_LIBS_USER is not writable: ", user_lib, call. = FALSE)
+  .libPaths(c(user_lib, .libPaths()))
 
   cat(sprintf("Installing %d package(s): %s\n", length(missing), paste(missing, collapse = ", ")))
 
@@ -108,13 +98,13 @@ main <- function() {
   cran_missing <- setdiff(missing, BIOC)
 
   if (length(cran_missing)) {
-    utils::install.packages(cran_missing, Ncpus = max(1L, parallel::detectCores() - 1L))
+    utils::install.packages(cran_missing, lib = user_lib, Ncpus = max(1L, parallel::detectCores() - 1L))
   }
   if (length(bioc_missing)) {
     if (!requireNamespace("BiocManager", quietly = TRUE)) {
-      utils::install.packages("BiocManager")
+      utils::install.packages("BiocManager", lib = user_lib)
     }
-    BiocManager::install(bioc_missing, ask = FALSE, update = FALSE)
+    BiocManager::install(bioc_missing, lib = user_lib, ask = FALSE, update = FALSE, force = TRUE)
   }
 
   cat("\nFinal status:\n")

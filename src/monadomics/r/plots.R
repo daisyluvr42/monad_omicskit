@@ -12,7 +12,7 @@
 #   venn:    sets = named list of character vectors (2-4 sets)
 #   pca:     matrix_path/matrix; coldata_path/coldata; colour_column; label_samples
 
-OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
+OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
 plot_volcano <- function(params) {

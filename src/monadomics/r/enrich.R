@@ -11,12 +11,12 @@
 #   ontology     GO only: BP (default) | CC | MF | ALL
 #   universe     optional background gene symbols for ORA
 #   pvalue, qvalue  cutoffs (default 0.05, 0.2)
-#   gene_sets    gsva/ssgsea: named list of gene sets, or msigdb_category
+#   gene_sets    gsva/ssgsea: required named list of gene sets
 #   matrix_path  gsva/ssgsea: expression matrix
 #   top_n        how many terms to plot (default 10)
 #   output_name  basename for saved outputs
 
-OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
+OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
 input_id_type <- function(params) {

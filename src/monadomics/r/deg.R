@@ -13,7 +13,7 @@
 #   voom          limma only: TRUE when the input is raw counts
 #   output_name   basename for saved tables
 
-OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
+OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
 build_design <- function(group_column, covariates) {

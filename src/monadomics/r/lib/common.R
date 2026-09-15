@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
-# Shared helpers for Scholar R analysis scripts.
+# Shared helpers for MonadOmics R analysis scripts.
 #
-# Every Scholar R script is invoked as:
+# The CLI sets OMICS_R_DIR and invokes each script as:
 #   Rscript <script>.R <args.json> <result.json>
 # and must write a JSON object to <result.json>. Figures follow the same
 # {png, svg} contract as the Python side so Skills can treat both alike.
@@ -32,9 +32,8 @@ omics_require <- function(pkgs) {
   if (length(missing)) {
     stop(
       sprintf(
-        "Missing R packages: %s. Install them with: Rscript r/bootstrap.R %s",
-        paste(missing, collapse = ", "),
-        paste(missing, collapse = " ")
+        "Missing R packages: %s. Run monadomics doctor for installation instructions.",
+        paste(missing, collapse = ", ")
       ),
       call. = FALSE
     )
@@ -210,7 +209,7 @@ omics_write <- function(result, out) {
   invisible(TRUE)
 }
 
-# Wrap a handler so R errors become a clean JSON payload the MCP layer can surface.
+# Wrap a handler so R errors become a clean JSON payload the CLI can surface.
 omics_main <- function(handler) {
   ctx <- omics_args()
   result <- tryCatch(

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests for the Omics MCP layer.
+"""Tests for the Omics analysis backend.
 
-Protocol and validation tests always run. Tests that need R and its
+Schema and validation tests always run. Tests that need R and its
 Bioconductor packages skip cleanly when those are absent, so the suite is
 useful before the 20-minute dependency install completes.
 """
@@ -9,7 +9,6 @@ useful before the 20-minute dependency install completes.
 from __future__ import annotations
 
 import json
-import io
 import csv
 import subprocess
 import sys
@@ -20,17 +19,17 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-sys.path.insert(0, str(ROOT / "mcp"))
+sys.path.insert(0, str(ROOT / "src"))
 
-import omics_mcp  # noqa: E402
+from monadomics import backend
 
 
 def r_packages_present(*packages: str) -> bool:
     try:
-        rscript = omics_mcp._find_rscript()
+        rscript = backend._find_rscript()
     except RuntimeError:
         return False
-    probe = f"cat(all(sapply({omics_mcp._r_vector(list(packages))}, requireNamespace, quietly=TRUE)))"
+    probe = f"cat(all(sapply({backend._r_vector(list(packages))}, requireNamespace, quietly=TRUE)))"
     result = subprocess.run(
         [rscript, "--vanilla", "-e", probe],
         capture_output=True, text=True, timeout=180, check=False,
@@ -47,65 +46,33 @@ HAS_RMS = HAS_R and r_packages_present("rms", "survival")
 HAS_ENRICH = HAS_R and r_packages_present("clusterProfiler", "org.Hs.eg.db", "GSVA")
 
 
-class ProtocolTests(unittest.TestCase):
+class SchemaTests(unittest.TestCase):
     def test_every_tool_has_a_handler(self) -> None:
-        declared = {tool["name"] for tool in omics_mcp.TOOLS}
-        self.assertEqual(declared, set(omics_mcp.CALLS))
+        declared = {tool["name"] for tool in backend.COMMANDS}
+        self.assertEqual(declared, set(backend.HANDLERS))
 
     def test_tool_schemas_are_objects(self) -> None:
-        for tool in omics_mcp.TOOLS:
+        for tool in backend.COMMANDS:
             self.assertEqual(tool["inputSchema"]["type"], "object", tool["name"])
             self.assertTrue(tool["description"].strip(), tool["name"])
 
     def test_scientific_input_semantics_are_explicit(self) -> None:
-        schemas = {tool["name"]: tool["inputSchema"] for tool in omics_mcp.TOOLS}
-        self.assertIn("matrix_type", schemas["omics_deg"]["required"])
-        self.assertIn("id_type", schemas["omics_enrich"]["required"])
-        self.assertIn("matrix_type", schemas["omics_plot"]["properties"])
+        schemas = {tool["name"]: tool["inputSchema"] for tool in backend.COMMANDS}
+        self.assertIn("matrix_type", schemas["deg"]["required"])
+        self.assertIn("id_type", schemas["enrich"]["required"])
+        self.assertIn("matrix_type", schemas["plot"]["properties"])
 
     def test_feature_menu_counts_match(self) -> None:
-        menu = omics_mcp.feature_menu({})
+        menu = backend.feature_menu({})
         total = sum(len(group["items"]) for group in menu["groups"])
         self.assertEqual(menu["count"], total)
         self.assertGreaterEqual(total, 20)
 
-    def test_unknown_tool_is_reported(self) -> None:
-        response = omics_mcp.handle(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "nope", "arguments": {}}}
-        )
-        self.assertTrue(response["result"]["isError"])
-
-    def test_initialize_reports_server_name(self) -> None:
-        response = omics_mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
-        self.assertEqual(response["result"]["serverInfo"]["name"], "omics")
-
-    def test_content_length_uses_utf8_bytes(self) -> None:
-        body = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 7,
-                "method": "tools/call",
-                "params": {
-                    "name": "omics_feature_menu",
-                    "arguments": {"context": "\u7ec4\u5b66"},
-                },
-            },
-            ensure_ascii=False,
-        )
-        payload = (
-            f"Content-Length: {len(body.encode('utf-8'))}\r\n\r\n".encode("utf-8")
-            + body.encode("utf-8")
-        )
-        stdin = io.TextIOWrapper(io.BytesIO(payload), encoding="utf-8")
-        with mock.patch.object(sys, "stdin", stdin):
-            omics_mcp.MESSAGE_MODE = "headers"
-            message = omics_mcp.read_message()
-        self.assertEqual(message["params"]["arguments"]["context"], "\u7ec4\u5b66")
 
 
 class EnvTests(unittest.TestCase):
     def test_env_reports_availability_either_way(self) -> None:
-        result = omics_mcp.env_tool({"group": "deg"})
+        result = backend.doctor({"group": "deg"})
         self.assertIn("r_available", result)
         if result["r_available"]:
             self.assertIn("missing", result)
@@ -115,17 +82,29 @@ class EnvTests(unittest.TestCase):
 
     def test_unknown_group_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            omics_mcp.env_tool({"group": "bogus"})
+            backend.doctor({"group": "bogus"})
 
-    def test_install_command_quotes_runtime_paths(self) -> None:
-        probe = mock.Mock(stdout="R version 4.5.0\njsonlite 0\n", stderr="", returncode=0)
+    def test_install_command_uses_the_packaged_cli(self) -> None:
+        packages = sorted(set(backend.R_PACKAGE_GROUPS["core"] + backend.R_PACKAGE_GROUPS["deg"]))
+        probe = mock.Mock(stdout="R version 4.5.0\n" + "".join(f"{package} 0\n" for package in packages), stderr="", returncode=0)
         with (
-            mock.patch.object(omics_mcp, "_find_rscript", return_value="/path with spaces/Rscript"),
-            mock.patch.object(omics_mcp.subprocess, "run", return_value=probe),
+            mock.patch.object(backend, "_find_rscript", return_value="/path with spaces/Rscript"),
+            mock.patch.object(backend.subprocess, "run", return_value=probe),
         ):
-            result = omics_mcp.env_tool({"group": "deg"})
-        self.assertIn("'/path with spaces/Rscript'", result["install_command"])
-        self.assertIn("cd ", result["install_command"])
+            result = backend.doctor({"group": "deg"})
+        self.assertEqual(result["install_command"], "monadomics setup-r deg")
+
+    def test_failed_dependency_probe_cannot_report_ready(self) -> None:
+        probe = mock.Mock(stdout="", stderr="R failed to start", returncode=1)
+        with mock.patch.object(backend, "_find_rscript", return_value="Rscript"), mock.patch.object(backend.subprocess, "run", return_value=probe):
+            with self.assertRaisesRegex(RuntimeError, "package check failed"):
+                backend.doctor({"group": "deg"})
+
+    def test_incomplete_dependency_probe_cannot_report_ready(self) -> None:
+        probe = mock.Mock(stdout="R version 4.6.1\njsonlite 1\n", stderr="", returncode=0)
+        with mock.patch.object(backend, "_find_rscript", return_value="Rscript"), mock.patch.object(backend.subprocess, "run", return_value=probe):
+            with self.assertRaisesRegex(RuntimeError, "incomplete"):
+                backend.doctor({"group": "deg"})
 
 
 @unittest.skipUnless(HAS_R, "R/jsonlite not available")
@@ -133,10 +112,10 @@ class RHelperTests(unittest.TestCase):
     def run_r(self, expression: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [
-                omics_mcp._find_rscript(),
+                backend._find_rscript(),
                 "--vanilla",
                 "-e",
-                f"source('{ROOT / 'r/lib/common.R'}'); {expression}",
+                f"source('{backend.R_DIR / 'lib/common.R'}'); {expression}",
             ],
             capture_output=True,
             text=True,
@@ -176,7 +155,7 @@ class DegTests(unittest.TestCase):
         return args
 
     def test_deseq2_finds_the_planted_signal(self) -> None:
-        result = omics_mcp.deg_tool(self.base_args(method="deseq2"))
+        result = backend.deg(self.base_args(method="deseq2"))
         self.assertEqual(result["comparison"], "disease vs control")
         self.assertGreater(result["significant"]["up"], 0)
         self.assertGreater(result["significant"]["down"], 0)
@@ -185,18 +164,18 @@ class DegTests(unittest.TestCase):
         self.assertTrue(genes & {"IL6", "TNF", "IL1B"}, "planted up-regulated genes should surface")
 
     def test_covariates_enter_the_design(self) -> None:
-        result = omics_mcp.deg_tool(self.base_args(method="deseq2", covariates=["batch"]))
+        result = backend.deg(self.base_args(method="deseq2", covariates=["batch"]))
         self.assertIn("batch", result["design"])
 
     def test_log_transformed_input_is_rejected(self) -> None:
         # The guard that stops the most common fatal bioinformatics mistake.
         with self.assertRaises(RuntimeError) as ctx:
-            omics_mcp.deg_tool(self.base_args(method="deseq2", matrix_path=str(FIXTURES / "logged.csv")))
+            backend.deg(self.base_args(method="deseq2", matrix_path=str(FIXTURES / "logged.csv")))
         self.assertIn("count", str(ctx.exception).lower())
 
     def test_unknown_group_level_is_reported(self) -> None:
         with self.assertRaises(RuntimeError) as ctx:
-            omics_mcp.deg_tool(self.base_args(treat="nonexistent"))
+            backend.deg(self.base_args(treat="nonexistent"))
         self.assertIn("nonexistent", str(ctx.exception))
 
     def test_formula_like_group_column_is_not_executed(self) -> None:
@@ -208,7 +187,7 @@ class DegTests(unittest.TestCase):
         for row in rows:
             row[malicious] = row.pop("group")
         try:
-            omics_mcp.deg_tool({
+            backend.deg({
                 "method": "deseq2",
                 "matrix_type": "counts",
                 "matrix_path": str(FIXTURES / "counts.csv"),
@@ -225,7 +204,7 @@ class DegTests(unittest.TestCase):
 @unittest.skipUnless(HAS_PLOT, "R with ggplot2/pheatmap not available")
 class PlotTests(unittest.TestCase):
     def test_pca_reports_variance_explained(self) -> None:
-        result = omics_mcp.plot_tool({
+        result = backend.plot({
             "type": "pca",
             "matrix_path": str(FIXTURES / "counts.csv"),
             "matrix_type": "counts",
@@ -240,7 +219,7 @@ class PlotTests(unittest.TestCase):
 
     def test_non_numeric_matrix_cell_is_rejected(self) -> None:
         with self.assertRaises(RuntimeError) as ctx:
-            omics_mcp.plot_tool({
+            backend.plot({
                 "type": "pca",
                 "matrix_type": "normalized",
                 "matrix": [
@@ -252,7 +231,7 @@ class PlotTests(unittest.TestCase):
 
     def test_heatmap_rejects_partial_sample_annotation(self) -> None:
         with self.assertRaises(RuntimeError) as ctx:
-            omics_mcp.plot_tool({
+            backend.plot({
                 "type": "heatmap",
                 "matrix_type": "normalized",
                 "matrix": [
@@ -268,7 +247,7 @@ class PlotTests(unittest.TestCase):
         self.assertIn("S3", str(ctx.exception))
 
     def test_venn_returns_region_membership(self) -> None:
-        result = omics_mcp.plot_tool({
+        result = backend.plot({
             "type": "venn",
             "sets": {"A": ["TP53", "EGFR", "MYC"], "B": ["MYC", "PTEN"]},
             "output_name": "test_venn",
@@ -278,7 +257,7 @@ class PlotTests(unittest.TestCase):
 
     def test_venn_rejects_too_many_sets(self) -> None:
         with self.assertRaises(RuntimeError):
-            omics_mcp.plot_tool({
+            backend.plot({
                 "type": "venn",
                 "sets": {name: ["G1"] for name in "ABCDE"},
             })
@@ -287,8 +266,8 @@ class PlotTests(unittest.TestCase):
 @unittest.skipUnless(HAS_SURVIVAL, "R with glmnet/survival not available")
 class SurvivalTests(unittest.TestCase):
     def test_lasso_cox_selects_variables_and_warns(self) -> None:
-        (ROOT / "Rplots.pdf").unlink(missing_ok=True)
-        result = omics_mcp.survival_tool({
+        (backend.ROOT / "Rplots.pdf").unlink(missing_ok=True)
+        result = backend.survival({
             "method": "lasso_cox",
             "data_path": str(FIXTURES / "survival.csv"),
             "time": "time",
@@ -300,7 +279,7 @@ class SurvivalTests(unittest.TestCase):
         self.assertGreater(result["concordance_index"], 0.5)
         self.assertTrue(any("optimistic" in w for w in result["warnings"]))
         self.assertTrue(Path(result["coefficient_table"]).exists())
-        self.assertFalse((ROOT / "Rplots.pdf").exists())
+        self.assertFalse((backend.ROOT / "Rplots.pdf").exists())
 
     def test_formula_like_predictor_name_is_not_executed(self) -> None:
         marker = Path(tempfile.gettempdir()) / "omics-formula-injection-marker"
@@ -312,7 +291,7 @@ class SurvivalTests(unittest.TestCase):
             row[malicious] = row["gene1"]
         try:
             try:
-                omics_mcp.survival_tool({
+                backend.survival({
                     "method": "lasso_cox",
                     "data": rows,
                     "time": "time",
@@ -329,7 +308,7 @@ class SurvivalTests(unittest.TestCase):
     def test_too_few_events_is_rejected(self) -> None:
         rows = [{"time": 10 + i, "event": 1 if i < 2 else 0, "g1": i, "g2": -i} for i in range(20)]
         with self.assertRaises(RuntimeError) as ctx:
-            omics_mcp.survival_tool({
+            backend.survival({
                 "method": "lasso_cox", "data": rows,
                 "time": "time", "event": "event", "predictors": ["g1", "g2"],
             })
@@ -343,7 +322,7 @@ class TimeRocTests(unittest.TestCase):
             rows = list(csv.DictReader(handle))
         for row in rows:
             row["risk_score"] = row["gene1"]
-        result = omics_mcp.survival_tool({
+        result = backend.survival({
             "method": "timeroc",
             "data": rows,
             "time": "time",
@@ -359,7 +338,7 @@ class TimeRocTests(unittest.TestCase):
 @unittest.skipUnless(HAS_RMS, "R with rms/survival not available")
 class CalibrationTests(unittest.TestCase):
     def test_groups_means_requested_number_of_groups(self) -> None:
-        result = omics_mcp.survival_tool({
+        result = backend.survival({
             "method": "calibration",
             "data_path": str(FIXTURES / "survival.csv"),
             "time": "time",
@@ -377,7 +356,7 @@ class CalibrationTests(unittest.TestCase):
 @unittest.skipUnless(HAS_ENRICH, "R enrichment packages not available")
 class EnrichmentTests(unittest.TestCase):
     def test_ensembl_identifiers_are_supported(self) -> None:
-        result = omics_mcp.enrich_tool({
+        result = backend.enrich({
             "method": "go",
             "species": "human",
             "id_type": "ENSEMBL",
@@ -397,7 +376,7 @@ class EnrichmentTests(unittest.TestCase):
         matrix = []
         for index, gene in enumerate(["G1", "G2", "G3", "G4", "G5", "G6"], start=1):
             matrix.append({"gene": gene, "S1": 50.5 + index, "S2": 60.5 + index, "S3": 70.5 + index})
-        result = omics_mcp.enrich_tool({
+        result = backend.enrich({
             "method": "gsva",
             "species": "human",
             "id_type": "SYMBOL",

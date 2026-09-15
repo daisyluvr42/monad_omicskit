@@ -14,7 +14,7 @@
 #   times         evaluation horizons for timeroc/calibration/dca
 #   risk_column   pre-computed risk score column, when scoring an existing model
 
-OMICS_R_DIR <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(FALSE), value = TRUE)[1])))
+OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
 numeric_column <- function(values, name) {

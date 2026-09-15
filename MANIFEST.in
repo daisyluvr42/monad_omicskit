@@ -1,0 +1,6 @@
+recursive-include src/monadomics/r *.R
+recursive-include workbuddy-connector *.json *.md *.svg
+recursive-include tests *.py *.sh *.csv
+recursive-include docs *.md
+include scripts/build_workbuddy_connector.py
+include install.py

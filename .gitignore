@@ -7,3 +7,7 @@ __pycache__/
 test-output/
 Rplots.pdf
 *.Rout
+build/
+dist/
+*.egg-info/
+.venv/
