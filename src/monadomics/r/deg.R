@@ -93,7 +93,7 @@ align_inputs <- function(params) {
        n_treat = n_treat, n_control = n_control)
 }
 
-run_deseq2 <- function(io, padj_method) {
+run_deseq2 <- function(io, padj_method, alpha) {
   omics_require(c("DESeq2"))
   counts <- round(io$mat)
   storage.mode(counts) <- "integer"
@@ -108,7 +108,8 @@ run_deseq2 <- function(io, padj_method) {
   res <- DESeq2::results(
     dds,
     contrast = c(io$group_column, io$treat, io$control),
-    pAdjustMethod = padj_method
+    pAdjustMethod = padj_method,
+    alpha = alpha
   )
   df <- as.data.frame(res)
   data.frame(
@@ -193,27 +194,29 @@ handler <- function(params) {
     omics_assert_counts(io$mat, "limma-voom")
   }
 
+  lfc_cut <- as.numeric(params$log2fc %||% 1)
+  padj_cut <- as.numeric(params$padj %||% 0.05)
+  if (!is.finite(padj_cut) || padj_cut <= 0 || padj_cut >= 1 ||
+      !is.finite(lfc_cut) || lfc_cut < 0) {
+    stop("padj must be between 0 and 1, and log2fc must be non-negative.", call. = FALSE)
+  }
   table <- switch(
     method,
-    deseq2 = run_deseq2(io, padj_method),
+    deseq2 = run_deseq2(io, padj_method, padj_cut),
     edger = run_edger(io, padj_method),
     limma = run_limma(io, padj_method, use_voom),
     stop(sprintf("Unknown method '%s'. Use deseq2, edger, or limma.", method), call. = FALSE)
   )
 
-  lfc_cut <- as.numeric(params$log2fc %||% 1)
-  padj_cut <- as.numeric(params$padj %||% 0.05)
-  table$padj[is.na(table$padj)] <- 1
-  table$pvalue[is.na(table$pvalue)] <- 1
-  table$direction <- ifelse(
-    table$padj < padj_cut & table$log2FoldChange >= lfc_cut, "up",
-    ifelse(table$padj < padj_cut & table$log2FoldChange <= -lfc_cut, "down", "ns")
-  )
+  available <- is.finite(table$padj) & is.finite(table$log2FoldChange)
+  table$direction <- ifelse(available, "ns", "unavailable")
+  table$direction[available & table$padj < padj_cut & table$log2FoldChange > 0 & table$log2FoldChange >= lfc_cut] <- "up"
+  table$direction[available & table$padj < padj_cut & table$log2FoldChange < 0 & table$log2FoldChange <= -lfc_cut] <- "down"
   table <- table[order(table$padj, -abs(table$log2FoldChange)), ]
 
   name <- as.character(params$output_name %||% sprintf("deg_%s_%s_vs_%s", method, io$treat, io$control))[1]
   all_path <- omics_save_table(table, "deg", name)
-  sig <- table[table$direction != "ns", ]
+  sig <- table[table$direction %in% c("up", "down"), ]
   sig_path <- omics_save_table(sig, "deg", paste0(name, "_significant"))
 
   list(
@@ -225,6 +228,13 @@ handler <- function(params) {
     covariates = omics_arr(io$original_covariates),
     thresholds = list(log2fc = lfc_cut, padj = padj_cut, padj_method = padj_method),
     genes_tested = nrow(table),
+    filtering = list(
+      input_genes = nrow(io$mat),
+      prefilter_removed = nrow(io$mat) - nrow(table),
+      pvalue_unavailable = sum(!is.finite(table$pvalue)),
+      padj_unavailable = sum(!is.finite(table$padj)),
+      independent_filtering_alpha = if (method == "deseq2") padj_cut else NULL
+    ),
     significant = list(
       total = nrow(sig),
       up = sum(table$direction == "up"),
@@ -235,7 +245,9 @@ handler <- function(params) {
     significant_table = sig_path,
     notes = omics_arr(c(
       "log2FoldChange is treat vs control; positive means higher in treat.",
-      sprintf("Multiple testing correction: %s.", padj_method)
+      sprintf("Multiple testing correction: %s.", padj_method),
+      "Missing statistical values remain missing (empty CSV cells); unavailable is distinct from non-significant.",
+      if (method == "deseq2") "Prefilter: total count >= 10; independent filtering inside results() is separate and may leave padj unavailable."
     ))
   )
 }

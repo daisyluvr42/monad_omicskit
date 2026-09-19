@@ -60,12 +60,17 @@ def main():
     up = [row["gene"] for row in rows if row["direction"] == "up"]
     enrichment = run("go", ["enrich"], {"method": "go", "species": "human", "id_type": "SYMBOL", "genes": up, "universe": sorted(source_genes), "output_name": "go_up"})
     assert enrichment["genes_mapped"] <= len(up)
+    gsea = run("gsea", ["enrich"], {"method": "gsea", "species": "human", "id_type": "SYMBOL", "ranked": [{"gene": row["gene"], "log2FoldChange": float(row["log2FoldChange"])} for row in rows], "padj": 0.05, "seed": 42, "output_name": "gsea"})
+    with Path(gsea["significant_table"]).open(newline="") as handle:
+        terms = list(csv.DictReader(handle))
+    assert len(terms) == gsea["terms_significant"] <= gsea["terms_tested"]
+    assert all(float(term["p.adjust"]) < 0.05 and float(term["pvalue"]) < 0.05 for term in terms)
     survival = run("lasso_cox", ["survival"], {"method": "lasso_cox", "data_path": str(inputs / "survival.csv"), "time": "time", "event": "event", "predictors": [f"gene{i}" for i in range(1, 9)], "output_name": "lasso_cox", "seed": 42})
     assert survival["n"] == 200 and survival["selected_variables"]
     assert any("optimistic" in warning for warning in survival["warnings"])
     artifacts = [path for path in (output / "artifacts").rglob("*") if path.is_file()]
     assert artifacts and all(path.stat().st_size for path in artifacts)
-    for name in ("pca", "volcano", "heatmap", "go", "lasso_cox"):
+    for name in ("pca", "volcano", "heatmap", "go", "gsea", "lasso_cox"):
         payload = json.loads((responses / f"{name}.json").read_text())
         for key in ("figure", "cv_figure", "km_figure"):
             if payload.get(key):

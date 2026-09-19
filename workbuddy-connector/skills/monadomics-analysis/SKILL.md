@@ -5,7 +5,7 @@ display_name_en: MonadOmics Bioinformatics
 description: Prepare and verify tables from sequencing-company deliveries, then analyze bulk or pseudobulk expression data with local R tools for differential expression, enrichment, figures and prognostic models. Not for ordinary clinical statistics or full single-cell pipelines.
 description_zh: 从测序公司交付材料提取规范表格，与原表及报告核验后，完成差异表达、功能富集、组学作图和预后建模。
 description_en: Prepare and verify vendor data tables, then analyze expression, run enrichment, create figures and fit prognostic models locally.
-version: 0.2.0
+version: 0.2.1
 author: MonadOmics
 ---
 
@@ -34,14 +34,18 @@ author: MonadOmics
 - **数据类型**：`matrix_type: counts` 仅用于原始非负整数 count；`normalized` 用于非 count 表达量。先确认是否已 log2，不能仅因数据是 TPM 就假定尺度已适合线性模型。DESeq2/edgeR 不能接收 TPM、FPKM 或 log2 数据。count 用 limma 时显式传 `voom: true`。
 - **比较方向**：确认 `group_column`、`treat`、`control`。有批次等混杂时用 `covariates` 纳入设计；先检查 PCA 和样本注释，区分分组与批次结构。
 - **富集**：物种仅支持 `human`/`mouse`，明确 `id_type: SYMBOL/ENSEMBL/ENTREZID`。ORA 的 `universe` 应反映实际进入检测/筛选范围的背景基因；GSEA 使用完整排序结果，不能只用显著 DEG。GSVA/ssGSEA 必须提供表达矩阵和来源明确的 `gene_sets`，当前工具不会自动下载默认基因集。
-- **作图**：火山图使用真实 DEG 表。热图和 PCA 必须声明 `matrix_type`；count 会做 `log2(count + 1)`，normalized 不会再次转换。Venn 同时交付区域基因归属表。
+- **作图**：火山图使用真实 DEG 表，缺失校正 P 值的基因不参与绘图并单独计数。热图和 PCA 必须声明 `matrix_type`；count 使用完整矩阵做 TMM 归一化和 logCPM 变换。热图用 `genes` 选行，不先截取少量基因再估计归一化因子。`normalized` 不会再次转换，须确认已经适合可视化。Venn 同时交付区域基因归属表。
 - **预后**：生存时间单位明确，结局必须为 0/1，时间点与生存时间同单位。照实报告事件数、EPV 警告和训练集性能的乐观偏倚；训练集 C-index/AUC 不能表述为外部验证。
 
 工具拒绝数据类型、分组或 ID 时，回到输入检查，不改标签绕过验证。具体方法判断和边界见 @references/analysis.md。
 
 ## 结果交付
 
-打开并检查生成的图，核对比较方向、坐标、标签、样本注释和是否有遮挡。向用户提供规范输入表、`input-check.md`、结果表和图文件的可点击路径，并用实际输出说明方法、阈值、多重校正、主要结果及限制；保留提取脚本（如使用）和分析参数以便复跑。说明哪些结果沿用公司原分析、哪些由本次重新计算。
+重新读取落盘结果表，按实际阈值核对显著子集、上下调数量和报告中的计数；缺失统计值保留缺失，不填成 0 或 1。GSEA 的全表行数不等于显著条目数，使用 `significant_table`、`terms_significant` 及返回的实际阈值。具体口径见 @references/analysis.md。
+
+打开并检查生成的图，核对比较方向、坐标、标签、样本注释和是否有遮挡。向用户提供规范输入表、`input-check.md`、结果表和图文件的可点击路径，并用实际输出说明方法、阈值、多重校正、主要结果及限制；保留提取脚本（如使用）、分析参数和完整 CLI 返回 JSON 以便复跑。说明哪些结果沿用公司原分析、哪些由本次重新计算。
+
+与原报告或论文对比时，先从对应实验的方法和表格确认单位、对数底数及比较方向，不由模型印象补全。统一方向后再计算一致性指标；回归必须使用图中实际的 x/y 方向，表、图、JSON 和正文由同一份核对结果生成。同源数据复算不能称作独立外部验证。
 
 未映射 ID、低事件数和其他工具警告必须说明。富集支持关联解释，不能据此写成机制已证实；结果中出现的基因、通路和数值均须能追溯到输入或输出。
 

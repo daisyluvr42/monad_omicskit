@@ -21,7 +21,7 @@ R_PACKAGE_GROUPS: dict[str, list[str]] = {
     "core": ["jsonlite", "ggplot2", "svglite"],
     "deg": ["DESeq2", "edgeR", "limma"],
     "enrich": ["clusterProfiler", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA"],
-    "plot": ["pheatmap", "ggrepel", "ggvenn", "svglite"],
+    "plot": ["edgeR", "pheatmap", "ggrepel", "ggvenn", "svglite"],
     "survival": ["survival", "glmnet", "timeROC", "rms"],
 }
 
@@ -83,7 +83,9 @@ COMMANDS: list[dict[str, Any]] = [
                 "matrix_type": {"type": "string", "enum": ["counts", "normalized"]},
                 "gene_sets": {"type": "object"},
                 "pvalue": {"type": "number", "default": 0.05},
-                "qvalue": {"type": "number", "default": 0.2},
+                "padj": {"type": "number", "default": 0.05, "description": "GSEA only: BH adjusted-P cutoff, separate from raw pvalue."},
+                "qvalue": {"type": "number", "description": "ORA: default 0.2. GSEA: optional additional q-value cutoff."},
+                "seed": {"type": "integer", "default": 42, "description": "GSEA random seed."},
                 "top_n": {"type": "integer", "default": 10},
                 "output_name": {"type": "string"},
             },

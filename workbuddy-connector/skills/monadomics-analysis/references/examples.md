@@ -51,7 +51,7 @@ monadomics plot --params pca.json --output-dir analysis-results
 
 ORA 参数使用 `method: go`、`species`、`id_type` 和真实筛选出的 `genes` 数组。实际可入选的背景基因写入 `universe`，不要使用模型自行编写的基因清单。
 
-GSEA 使用 `method: gsea`、`ranked_path` 指向完整排序表，`gene_column`/`metric_column` 填真实列名；完整声明 `species` 和 `id_type`。
+GSEA 使用 `method: gsea`、`ranked_path` 指向完整排序表，`gene_column`/`metric_column` 填真实列名；完整声明 `species` 和 `id_type`。例如 `pvalue: 0.05, padj: 0.05, seed: 42`；除非分析计划需要额外筛 q-value，否则不传 `qvalue`。显著数量读取 `terms_significant` 并与 `significant_table` 核对，不数全表代替。
 
 GSVA/ssGSEA 使用 `matrix_path`、`matrix_type`、物种/ID 类型和必填的 `gene_sets`。`gene_sets` 对象中的每一项为一个基因集名称及其成员数组，ID 应与矩阵一致。
 

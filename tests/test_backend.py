@@ -39,7 +39,7 @@ def r_packages_present(*packages: str) -> bool:
 
 HAS_R = r_packages_present("jsonlite")
 HAS_DEG = HAS_R and r_packages_present("DESeq2", "limma")
-HAS_PLOT = HAS_R and r_packages_present("ggplot2", "pheatmap")
+HAS_PLOT = HAS_R and r_packages_present("ggplot2", "pheatmap", "edgeR")
 HAS_SURVIVAL = HAS_R and r_packages_present("glmnet", "survival")
 HAS_TIMEROC = HAS_R and r_packages_present("timeROC", "survival")
 HAS_RMS = HAS_R and r_packages_present("rms", "survival")
@@ -215,7 +215,7 @@ class PlotTests(unittest.TestCase):
         self.assertTrue(Path(result["figure"]["png"]).exists())
         self.assertTrue(Path(result["figure"]["svg"]).exists())
         self.assertGreater(result["variance_explained"]["PC1"], 0)
-        self.assertEqual(result["transformation"], "log2(count + 1)")
+        self.assertEqual(result["transformation"], "log2 CPM (TMM, prior.count=2)")
 
     def test_non_numeric_matrix_cell_is_rejected(self) -> None:
         with self.assertRaises(RuntimeError) as ctx:

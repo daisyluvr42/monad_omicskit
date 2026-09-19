@@ -4,7 +4,7 @@
 
 公共选项：`--output-dir` 指定本地产物目录；`--timeout` 指定 R 运行秒数，默认分析 900、作图 600。文件路径字段支持本地 CSV/TSV，推荐绝对路径。未知参数字段会被拒绝；参数文件不包含公共命令行选项。
 
-下列为 0.2.0 schema；运行 `monadomics schema <command>` 可核对当前安装版。
+下列为 0.2.1 schema；运行 `monadomics schema <command>` 可核对当前安装版。
 
 ## deg
 
@@ -24,7 +24,7 @@ Differential expression with DESeq2, edgeR, or limma. DESeq2/edgeR require raw i
 | `covariates` | array | 按分析需要 | — |
 | `log2fc` | number | 按分析需要 | 默认 1 |
 | `padj` | number | 按分析需要 | 默认 0.05 |
-| `padj_method` | string | 按分析需要 | 默认 bh |
+| `padj_method` | string | 按分析需要 | 默认 BH，区分大小写 |
 | `voom` | boolean | 按分析需要 | 默认 false |
 | `output_name` | string | 按分析需要 | — |
 
@@ -39,17 +39,19 @@ Functional enrichment: GO/KEGG/Reactome over-representation, GSEA on a ranked li
 | `id_type` | string | 是 | SYMBOL, ENSEMBL, ENTREZID |
 | `genes` | array | 按分析需要 | — |
 | `universe` | array | 按分析需要 | — |
-| `ontology` | string | 按分析需要 | 默认 bp；BP, CC, MF, ALL |
+| `ontology` | string | 按分析需要 | 默认 BP；BP, CC, MF, ALL |
 | `ranked_path` | string | 按分析需要 | — |
 | `ranked` | array | 按分析需要 | — |
 | `gene_column` | string | 按分析需要 | — |
-| `metric_column` | string | 按分析需要 | 默认 log2foldchange |
+| `metric_column` | string | 按分析需要 | 默认 log2FoldChange |
 | `matrix_path` | string | 按分析需要 | — |
 | `matrix` | array | 按分析需要 | — |
 | `matrix_type` | string | 按分析需要 | counts, normalized |
 | `gene_sets` | object | 按分析需要 | — |
 | `pvalue` | number | 按分析需要 | 默认 0.05 |
-| `qvalue` | number | 按分析需要 | 默认 0.2 |
+| `padj` | number | GSEA | 默认 0.05，BH 校正 P 阈值 |
+| `qvalue` | number | 按分析需要 | ORA 默认 0.2；GSEA 仅显式传入时额外筛选 |
+| `seed` | integer | GSEA | 默认 42 |
 | `top_n` | integer | 按分析需要 | 默认 10 |
 | `output_name` | string | 按分析需要 | — |
 
@@ -115,9 +117,9 @@ Prognostic modelling: LASSO-Cox variable selection with risk score, time-depende
 ## 输入来源和返回值
 
 - `matrix_path` / `matrix`、`coldata_path` / `coldata` 等分别选择文件或内联记录数组。通常优先文件，避免把大矩阵复制进对话。缺少具体方法需要的数据时 R 会返回可读错误。
-- `deg`：`result_table`、`significant_table`、`significant`、`top_genes` 以及实际设计/比较信息。
-- `enrich`：按方法返回富集表或通路分数表、图和映射信息；无显著条目不等于命令失败。
-- `plot`：`figure.png`、`figure.svg`；PCA 还返回方差解释等，Venn 返回区域成员表。
+- `deg`：`result_table`、`significant_table`、`significant`、`top_genes` 以及实际设计/比较信息；`filtering` 记录预过滤和统计值缺失，CSV 空白保留缺失含义。
+- `enrich`：按方法返回富集表或通路分数表、图和映射信息；GSEA 分别返回全表和 `significant_table`，计数/预览/图对应显著子集；无显著条目不等于命令失败。
+- `plot`：`figure.png`、`figure.svg`；PCA/热图还返回实际变换和 count 归一化信息。使用完整 count 矩阵，热图通过 `genes` 选行；PCA 返回方差解释等，Venn 返回区域成员表。
 - `survival`：按方法返回系数、风险分数、图及模型指标；检查所有 `warnings`。
 
 依赖准备命令、输出目录和网络范围见 @references/installation.md。

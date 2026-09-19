@@ -66,10 +66,11 @@ dot_plot <- function(df, title, top_n) {
   if (!nrow(df)) return(NULL)
   df$Description <- factor(df$Description, levels = rev(df$Description))
   count_col <- if ("Count" %in% colnames(df)) "Count" else "setSize"
-  ggplot2::ggplot(df, ggplot2::aes(x = -log10(p.adjust), y = Description)) +
+  df$.x <- if ("NES" %in% colnames(df)) df$NES else -log10(pmax(df$p.adjust, .Machine$double.xmin))
+  ggplot2::ggplot(df, ggplot2::aes(x = .x, y = Description)) +
     ggplot2::geom_point(ggplot2::aes(size = .data[[count_col]], colour = p.adjust)) +
     ggplot2::scale_colour_gradient(low = "#b5483a", high = "#2f5f8f") +
-    ggplot2::labs(x = expression(-log[10](adjusted~p)), y = NULL, title = title,
+    ggplot2::labs(x = if ("NES" %in% colnames(df)) "Normalized enrichment score (NES)" else expression(-log[10](adjusted~p)), y = NULL, title = title,
                   size = "Genes", colour = "p.adjust") +
     ggplot2::theme_bw(base_size = 11) +
     ggplot2::theme(panel.grid.minor = ggplot2::element_blank())
@@ -138,7 +139,7 @@ run_ora <- function(params, org, method) {
     genes_mapped = mapping$mapped_n,
     genes_unmapped = omics_arr(mapping$unmapped),
     background = if (is.null(universe_entrez)) "genome-wide default" else sprintf("user-supplied (%d genes)", length(universe_entrez)),
-    thresholds = list(pvalue = pvalue, qvalue = qvalue, padj_method = "BH"),
+    thresholds = list(pvalue = pvalue, padj = pvalue, qvalue = qvalue, padj_method = "BH"),
     terms_significant = nrow(df),
     top_terms = utils::head(df, 15),
     result_table = table_path,
@@ -178,20 +179,47 @@ run_gsea <- function(params, org) {
   }
 
   pvalue <- as.numeric(params$pvalue %||% 0.05)
+  padj <- as.numeric(params$padj %||% 0.05)
+  qvalue <- if (!is.null(params$qvalue)) as.numeric(params$qvalue) else NULL
+  cutoffs <- c(pvalue, padj, qvalue)
+  if (any(!is.finite(cutoffs)) || any(cutoffs <= 0 | cutoffs > 1)) {
+    stop("GSEA pvalue, padj and optional qvalue cutoffs must be in (0, 1].", call. = FALSE)
+  }
+  seed <- as.integer(params$seed %||% 42)
+  set.seed(seed)
   result <- clusterProfiler::gseGO(
     geneList = ranks, OrgDb = org$orgdb, keyType = "ENTREZID",
     ont = toupper(as.character(params$ontology %||% "BP")[1]),
-    pvalueCutoff = pvalue, verbose = FALSE
+    pvalueCutoff = 1, pAdjustMethod = "BH", verbose = FALSE,
+    BPPARAM = BiocParallel::SerialParam(RNGseed = seed)
   )
   if (!is.null(result)) result <- clusterProfiler::setReadable(result, OrgDb = org$orgdb, keyType = "ENTREZID")
   df <- enrich_table(result)
+  if (!ncol(df)) {
+    df <- data.frame(ID = character(), Description = character(), NES = numeric(),
+                     pvalue = numeric(), p.adjust = numeric(), qvalue = numeric(), setSize = integer())
+  }
+  valid <- if (nrow(df)) !is.na(df$ID) & nzchar(df$ID) &
+    is.finite(df$NES) & is.finite(df$pvalue) & is.finite(df$p.adjust) else logical()
+  invalid_rows <- sum(!valid)
+  df <- df[valid, , drop = FALSE]
+  df <- df[order(df$p.adjust), , drop = FALSE]
+  keep <- if (nrow(df)) df$pvalue < pvalue & df$p.adjust < padj else logical()
+  if (!is.null(qvalue) && nrow(df)) {
+    keep <- keep & is.finite(df$qvalue) & df$qvalue < qvalue
+  }
+  significant <- df[keep, , drop = FALSE]
 
   name <- as.character(params$output_name %||% "gsea")[1]
-  table_path <- if (nrow(df)) omics_save_table(df, "enrich", name) else NULL
+  table_path <- omics_save_table(df, "enrich", name)
+  significant_path <- omics_save_table(significant, "enrich", paste0(name, "_significant"))
   figure <- NULL
-  if (nrow(df)) {
-    plot <- dot_plot(df, "GSEA", as.integer(params$top_n %||% 10))
+  if (nrow(significant)) {
+    plot <- dot_plot(significant, "GSEA", as.integer(params$top_n %||% 10))
     if (!is.null(plot)) figure <- omics_save_plot(plot, "enrich", paste0(name, "_dotplot"), width = 7.5, height = 5.5)
+  }
+  if (is.null(figure)) {
+    unlink(file.path(omics_output_dir("enrich"), paste0(omics_safe_name(paste0(name, "_dotplot")), c(".png", ".svg"))))
   }
 
   list(
@@ -200,13 +228,20 @@ run_gsea <- function(params, org) {
     id_type = id_type,
     genes_ranked = length(ranks),
     ranking_metric = metric_column,
-    thresholds = list(pvalue = pvalue, padj_method = "BH"),
-    terms_significant = nrow(df),
-    top_terms = utils::head(df[order(df$p.adjust), c("ID", "Description", "NES", "pvalue", "p.adjust", "setSize")], 15),
+    thresholds = list(pvalue = pvalue, padj = padj, qvalue = qvalue, padj_method = "BH"),
+    seed = seed,
+    software = list(R = as.character(getRversion()), clusterProfiler = as.character(utils::packageVersion("clusterProfiler"))),
+    terms_tested = nrow(df),
+    terms_invalid = invalid_rows,
+    terms_significant = nrow(significant),
+    top_terms = if (nrow(significant)) utils::head(significant[, c("ID", "Description", "NES", "pvalue", "p.adjust", "setSize")], 15) else significant,
     result_table = table_path,
+    significant_table = significant_path,
     figure = figure,
     notes = omics_arr(c(
       "GSEA requires the complete ranked gene list, not a pre-filtered DEG set.",
+      "Counts, top_terms and the NES plot use only the significant subset; result_table contains all valid tested terms.",
+      "When a qvalue cutoff is requested, terms with missing q-values cannot pass it.",
       "NES sign follows the ranking metric; positive means enriched at the top of the ranking."
     ))
   )

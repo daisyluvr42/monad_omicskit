@@ -14,7 +14,7 @@ GROUPS <- list(
   deg = c("DESeq2", "edgeR", "limma"),
   enrich = c("clusterProfiler", "org.Hs.eg.db", "org.Mm.eg.db", "ReactomePA", "GSVA"),
   # svglite backs ggsave's SVG device; without it every figure call fails at save time.
-  plot = c("pheatmap", "ggrepel", "ggvenn", "svglite"),
+  plot = c("edgeR", "pheatmap", "ggrepel", "ggvenn", "svglite"),
   survival = c("survival", "glmnet", "timeROC", "rms")
 )
 

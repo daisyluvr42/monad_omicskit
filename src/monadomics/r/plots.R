@@ -15,6 +15,30 @@
 OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
 
+expression_for_plot <- function(params) {
+  matrix_type <- omics_matrix_type(params)
+  mat <- omics_read_matrix(params, matrix_type = matrix_type)
+  transformation <- "none"
+  normalization <- NULL
+  if (matrix_type == "counts") {
+    omics_assert_counts(mat, "Expression plot")
+    omics_require("edgeR")
+    if (any(!is.finite(mat)) || any(colSums(mat) <= 0)) {
+      stop("Count plots require finite counts and a positive library size for every sample.", call. = FALSE)
+    }
+    dge <- edgeR::calcNormFactors(edgeR::DGEList(counts = mat), method = "TMM")
+    normalization <- data.frame(
+      sample = colnames(mat), library_size = dge$samples$lib.size,
+      norm_factor = dge$samples$norm.factors,
+      effective_library_size = dge$samples$lib.size * dge$samples$norm.factors
+    )
+    mat <- edgeR::cpm(dge, log = TRUE, prior.count = 2)
+    transformation <- "log2 CPM (TMM, prior.count=2)"
+  }
+  list(matrix = mat, matrix_type = matrix_type, transformation = transformation,
+       normalization = normalization)
+}
+
 plot_volcano <- function(params) {
   omics_require(c("ggplot2"))
   df <- omics_read_table(params, "deg_path", "deg")
@@ -30,10 +54,11 @@ plot_volcano <- function(params) {
   df$gene <- as.character(df[[gene_col]])
   df$log2FoldChange <- as.numeric(df$log2FoldChange)
   df$pval <- as.numeric(df[[p_col]])
+  omitted <- sum(!is.finite(df$log2FoldChange) | !is.finite(df$pval))
   df <- df[is.finite(df$log2FoldChange) & is.finite(df$pval), ]
   df$pval[df$pval <= 0] <- .Machine$double.xmin
-  df$direction <- ifelse(df$pval < p_cut & df$log2FoldChange >= lfc_cut, "Up",
-                  ifelse(df$pval < p_cut & df$log2FoldChange <= -lfc_cut, "Down", "NS"))
+  df$direction <- ifelse(df$pval < p_cut & df$log2FoldChange > 0 & df$log2FoldChange >= lfc_cut, "Up",
+                  ifelse(df$pval < p_cut & df$log2FoldChange < 0 & df$log2FoldChange <= -lfc_cut, "Down", "NS"))
   df$direction <- factor(df$direction, levels = c("Down", "NS", "Up"))
 
   label_genes <- as.character(params$label_genes %||% character())
@@ -81,6 +106,7 @@ plot_volcano <- function(params) {
   list(
     type = "volcano",
     genes_plotted = nrow(df),
+    genes_omitted_unavailable = omitted,
     up = sum(df$direction == "Up"),
     down = sum(df$direction == "Down"),
     thresholds = list(log2fc = lfc_cut, p = p_cut, p_column = p_col),
@@ -91,14 +117,8 @@ plot_volcano <- function(params) {
 
 plot_heatmap <- function(params) {
   omics_require(c("pheatmap"))
-  matrix_type <- omics_matrix_type(params)
-  mat <- omics_read_matrix(params, matrix_type = matrix_type)
-  transformation <- "none"
-  if (matrix_type == "counts") {
-    omics_assert_counts(mat, "Heatmap count input")
-    mat <- log2(mat + 1)
-    transformation <- "log2(count + 1)"
-  }
+  prepared <- expression_for_plot(params)
+  mat <- prepared$matrix
   genes <- params$genes
   if (!is.null(genes)) {
     genes <- unique(as.character(genes))
@@ -162,8 +182,9 @@ plot_heatmap <- function(params) {
     type = "heatmap",
     genes = nrow(mat),
     samples = ncol(mat),
-    matrix_type = matrix_type,
-    transformation = transformation,
+    matrix_type = prepared$matrix_type,
+    transformation = prepared$transformation,
+    normalization = prepared$normalization,
     scaled = if (scale_rows) "row z-score" else "none",
     dropped_zero_variance = omics_arr(dropped),
     figure = figure,
@@ -216,14 +237,8 @@ plot_venn <- function(params) {
 
 plot_pca <- function(params) {
   omics_require(c("ggplot2"))
-  matrix_type <- omics_matrix_type(params)
-  mat <- omics_read_matrix(params, matrix_type = matrix_type)
-  transformation <- "none"
-  if (matrix_type == "counts") {
-    omics_assert_counts(mat, "PCA count input")
-    mat <- log2(mat + 1)
-    transformation <- "log2(count + 1)"
-  }
+  prepared <- expression_for_plot(params)
+  mat <- prepared$matrix
   variances <- apply(mat, 1, stats::var, na.rm = TRUE)
   mat <- mat[is.finite(variances) & variances > 0, , drop = FALSE]
   if (nrow(mat) < 2L) stop("Need at least 2 variable genes for PCA.", call. = FALSE)
@@ -233,7 +248,7 @@ plot_pca <- function(params) {
     mat <- mat[keep, , drop = FALSE]
   }
 
-  pca <- stats::prcomp(t(mat), scale. = TRUE)
+  pca <- stats::prcomp(t(mat), center = TRUE, scale. = FALSE)
   percent <- round(100 * pca$sdev^2 / sum(pca$sdev^2), 1)
   scores <- data.frame(sample = rownames(pca$x), PC1 = pca$x[, 1], PC2 = pca$x[, 2], stringsAsFactors = FALSE)
 
@@ -278,8 +293,11 @@ plot_pca <- function(params) {
     type = "pca",
     samples = ncol(mat),
     genes_used = nrow(mat),
-    matrix_type = matrix_type,
-    transformation = transformation,
+    matrix_type = prepared$matrix_type,
+    transformation = prepared$transformation,
+    normalization = prepared$normalization,
+    centered = TRUE,
+    scaled = FALSE,
     variance_explained = list(PC1 = percent[1], PC2 = percent[2], PC3 = if (length(percent) >= 3) percent[3] else NULL),
     scores = scores,
     figure = figure,
