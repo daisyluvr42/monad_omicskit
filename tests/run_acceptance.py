@@ -47,12 +47,16 @@ def main():
     report["r_version"] = doctor["r_version"]
     matrix = {"matrix_path": str(inputs / "counts.csv"), "matrix_type": "counts", "coldata_path": str(inputs / "coldata.csv")}
     run("pca", ["plot"], {**matrix, "type": "pca", "colour_column": "group", "output_name": "sample_pca"})
-    deg = run("deg", ["deg"], {**matrix, "method": "deseq2", "group_column": "group", "treat": "disease", "control": "control", "output_name": "disease_vs_control"})
+    deg = run("deg", ["deg"], {**matrix, "method": "deseq2", "group_column": "group", "treat": "disease", "control": "control", "species": "human", "id_type": "SYMBOL", "output_name": "disease_vs_control"})
     with Path(deg["result_table"]).open(encoding="utf-8", newline="") as handle:
         rows = list(csv.DictReader(handle))
     assert {row["gene"] for row in rows} == source_genes
     assert deg["significant"]["up"] > 0 and deg["significant"]["down"] > 0
     assert deg["comparison"] == "disease vs control"
+    assert deg["fit_scope"] == "two_group_subset" and deg["group_levels"] == ["control", "disease"]
+    assert not deg["sample_selection"]["excluded_other_groups"] and deg["residual_df"] > 0
+    assert deg["annotation"]["database"] == "org.Hs.eg.db" and Path(deg["annotation"]["mapping_table"]).is_file()
+    assert all(row["symbol"] == row["gene"] for row in deg["top_genes"] if row.get("symbol"))
     selected = [row["gene"] for row in deg["top_genes"]][:15]
     assert set(selected) <= source_genes
     run("volcano", ["plot"], {"type": "volcano", "deg_path": deg["result_table"], "output_name": "volcano"})
@@ -60,6 +64,8 @@ def main():
     up = [row["gene"] for row in rows if row["direction"] == "up"]
     enrichment = run("go", ["enrich"], {"method": "go", "species": "human", "id_type": "SYMBOL", "genes": up, "universe": sorted(source_genes), "output_name": "go_up"})
     assert enrichment["genes_mapped"] <= len(up)
+    assert enrichment["directionality"] == "unsigned_gene_set"
+    assert Path(enrichment["annotation"]["mapping_table"]).is_file()
     gsea = run("gsea", ["enrich"], {"method": "gsea", "species": "human", "id_type": "SYMBOL", "ranked": [{"gene": row["gene"], "log2FoldChange": float(row["log2FoldChange"])} for row in rows], "padj": 0.05, "seed": 42, "output_name": "gsea"})
     with Path(gsea["significant_table"]).open(newline="") as handle:
         terms = list(csv.DictReader(handle))

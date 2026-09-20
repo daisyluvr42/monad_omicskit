@@ -15,6 +15,7 @@
 
 OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
+source(file.path(OMICS_R_DIR, "lib", "annotation.R"))
 
 build_design <- function(group_column, covariates) {
   stats::reformulate(c(covariates, group_column))
@@ -24,7 +25,11 @@ align_inputs <- function(params) {
   matrix_type <- omics_matrix_type(params)
   mat <- omics_read_matrix(params, matrix_type = matrix_type)
   coldata <- omics_read_table(params, "coldata_path", "coldata")
-  rownames(coldata) <- as.character(coldata[[1]])
+  sample_ids <- as.character(coldata[[1]])
+  if (anyNA(sample_ids) || any(!nzchar(trimws(sample_ids))) || anyDuplicated(sample_ids)) {
+    stop("Metadata sample IDs must be non-empty and unique.", call. = FALSE)
+  }
+  rownames(coldata) <- sample_ids
 
   group_column <- params$group_column
   if (is.null(group_column) || !nzchar(group_column)) {
@@ -35,12 +40,15 @@ align_inputs <- function(params) {
                  group_column, paste(colnames(coldata), collapse = ", ")), call. = FALSE)
   }
 
-  shared <- intersect(colnames(mat), rownames(coldata))
-  if (length(shared) < 4L) {
-    stop(sprintf("Only %d sample(s) shared between the matrix columns and coldata rows. Check that sample IDs match exactly.", length(shared)), call. = FALSE)
+  input_samples <- colnames(mat)
+  missing_samples <- setdiff(input_samples, sample_ids)
+  if (length(missing_samples)) {
+    stop(sprintf("Missing metadata for matrix samples: %s", paste(missing_samples, collapse = ", ")), call. = FALSE)
   }
-  mat <- mat[, shared, drop = FALSE]
-  coldata <- coldata[shared, , drop = FALSE]
+  coldata <- coldata[input_samples, , drop = FALSE]
+  if (anyNA(coldata[[group_column]]) || any(!nzchar(trimws(as.character(coldata[[group_column]]))))) {
+    stop("Group labels are missing; resolve sample metadata before analysis.", call. = FALSE)
+  }
 
   treat <- as.character(params$treat)
   control <- as.character(params$control)
@@ -48,6 +56,7 @@ align_inputs <- function(params) {
   if (is.null(params$treat) || is.null(params$control)) {
     stop(sprintf("treat and control are required. Levels present: %s", paste(levels_present, collapse = ", ")), call. = FALSE)
   }
+  if (identical(treat, control)) stop("treat and control must be different groups.", call. = FALSE)
   for (lvl in c(treat, control)) {
     if (!lvl %in% levels_present) {
       stop(sprintf("Group '%s' not found. Levels present: %s", lvl, paste(levels_present, collapse = ", ")), call. = FALSE)
@@ -81,15 +90,31 @@ align_inputs <- function(params) {
     safe_covariates <- sprintf(".covariate_%d", seq_along(covariates))
     for (index in seq_along(covariates)) {
       value <- coldata[[covariates[[index]]]]
+      if (anyNA(value) || (is.numeric(value) && any(!is.finite(value))) ||
+          (is.character(value) && any(!nzchar(trimws(value))))) {
+        stop(sprintf("Covariate '%s' contains missing or non-finite values.", covariates[[index]]), call. = FALSE)
+      }
       if (is.character(value)) value <- factor(value)
       safe_coldata[[safe_covariates[[index]]]] <- value
     }
   }
 
+  design <- stats::model.matrix(build_design(".group", safe_covariates), data = safe_coldata)
+  design_rank <- qr(design)$rank
+  if (design_rank < ncol(design)) {
+    stop("Design matrix is not full rank; groups and covariates are confounded or redundant.", call. = FALSE)
+  }
+  if (nrow(design) <= design_rank) {
+    stop("Design has no residual degrees of freedom; reduce the model or provide more replicates.", call. = FALSE)
+  }
+
   list(mat = mat, coldata = safe_coldata, group_column = ".group",
        original_group_column = group_column, treat = treat, control = control,
        covariates = safe_covariates, original_covariates = covariates,
-       matrix_type = matrix_type,
+       matrix_type = matrix_type, design_matrix = design,
+       sample_selection = list(input = omics_arr(input_samples), used = omics_arr(colnames(mat)),
+                               excluded_other_groups = omics_arr(setdiff(input_samples, colnames(mat))),
+                               metadata_only = omics_arr(setdiff(sample_ids, input_samples))),
        n_treat = n_treat, n_control = n_control)
 }
 
@@ -126,7 +151,7 @@ run_deseq2 <- function(io, padj_method, alpha) {
 run_edger <- function(io, padj_method) {
   omics_require(c("edgeR"))
   counts <- round(io$mat)
-  design <- stats::model.matrix(build_design(io$group_column, io$covariates), data = io$coldata)
+  design <- io$design_matrix
   dge <- edgeR::DGEList(counts = counts, group = io$coldata[[io$group_column]])
   keep <- edgeR::filterByExpr(dge, design = design)
   dge <- dge[keep, , keep.lib.sizes = FALSE]
@@ -149,7 +174,7 @@ run_edger <- function(io, padj_method) {
 
 run_limma <- function(io, padj_method, use_voom) {
   omics_require(c("limma"))
-  design <- stats::model.matrix(build_design(io$group_column, io$covariates), data = io$coldata)
+  design <- io$design_matrix
   if (isTRUE(use_voom)) {
     omics_require(c("edgeR"))
     dge <- edgeR::DGEList(counts = round(io$mat))
@@ -177,6 +202,15 @@ handler <- function(params) {
   method <- tolower(as.character(params$method %||% "deseq2")[1])
   padj_method <- as.character(params$padj_method %||% "BH")[1]
   io <- align_inputs(params)
+  mapping <- NULL
+  if (!is.null(params$species) || !is.null(params$id_type)) {
+    if (is.null(params$species) || is.null(params$id_type)) {
+      stop("Provide both species and id_type for gene annotation, or omit both and report original IDs.", call. = FALSE)
+    }
+    org <- omics_species(params)
+    species <- org$species
+    mapping <- omics_map_ids(rownames(io$mat), org$orgdb, params$id_type)
+  }
 
   use_voom <- isTRUE(params$voom)
   if (method %in% c("deseq2", "edger") && io$matrix_type != "counts") {
@@ -215,6 +249,12 @@ handler <- function(params) {
   table <- table[order(table$padj, -abs(table$log2FoldChange)), ]
 
   name <- as.character(params$output_name %||% sprintf("deg_%s_%s_vs_%s", method, io$treat, io$control))[1]
+  annotation <- NULL
+  if (!is.null(mapping)) {
+    unambiguous <- mapping$mapped[!mapping$mapped$INPUT %in% mapping$ambiguous, , drop = FALSE]
+    table$symbol <- unambiguous$SYMBOL[match(table$gene, unambiguous$INPUT)]
+    annotation <- omics_save_annotation(mapping, species, "deg", name)
+  }
   all_path <- omics_save_table(table, "deg", name)
   sig <- table[table$direction %in% c("up", "down"), ]
   sig_path <- omics_save_table(sig, "deg", paste0(name, "_significant"))
@@ -224,6 +264,11 @@ handler <- function(params) {
     matrix_type = io$matrix_type,
     comparison = sprintf("%s vs %s", io$treat, io$control),
     design = paste(c(io$original_covariates, io$original_group_column), collapse = " + "),
+    fit_scope = "two_group_subset",
+    group_levels = omics_arr(c(io$control, io$treat)),
+    sample_selection = io$sample_selection,
+    design_rank = ncol(io$design_matrix),
+    residual_df = nrow(io$design_matrix) - ncol(io$design_matrix),
     samples = list(treat = io$n_treat, control = io$n_control),
     covariates = omics_arr(io$original_covariates),
     thresholds = list(log2fc = lfc_cut, padj = padj_cut, padj_method = padj_method),
@@ -240,11 +285,14 @@ handler <- function(params) {
       up = sum(table$direction == "up"),
       down = sum(table$direction == "down")
     ),
-    top_genes = utils::head(sig[, c("gene", "log2FoldChange", "pvalue", "padj", "direction")], 25),
+    annotation = annotation,
+    top_genes = utils::head(sig[, intersect(c("gene", "symbol", "log2FoldChange", "pvalue", "padj", "direction"), names(sig))], 25),
     result_table = all_path,
     significant_table = sig_path,
     notes = omics_arr(c(
       "log2FoldChange is treat vs control; positive means higher in treat.",
+      "Only the two requested groups are fitted; this is not a joint fit of every group in the input.",
+      if (is.null(annotation)) "Gene symbols were not annotated; report original IDs or obtain a sourced mapping before naming genes.",
       sprintf("Multiple testing correction: %s.", padj_method),
       "Missing statistical values remain missing (empty CSV cells); unavailable is distinct from non-significant.",
       if (method == "deseq2") "Prefilter: total count >= 10; independent filtering inside results() is separate and may leave padj unavailable."

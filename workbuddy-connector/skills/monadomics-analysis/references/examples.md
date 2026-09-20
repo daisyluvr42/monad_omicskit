@@ -28,6 +28,8 @@ monadomics doctor --group deg
 monadomics deg --params deg.json --output-dir analysis-results
 ```
 
+该命令只拟合 disease/control 两组，其他组的样本列在 `sample_selection.excluded_other_groups`，不能称为多组联合拟合。若已确认是人类 Entrez ID，可在参数中同时加入 `"species": "human", "id_type": "ENTREZID"`；先检查注释依赖 `doctor --group enrich`。报告基因名称读取结果的 `symbol` 和 `annotation.mapping_table`，不由模型补全。其他物种或 ID 类型应按真实材料填写。
+
 ## 样本 PCA
 
 ```json

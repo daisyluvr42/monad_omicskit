@@ -128,15 +128,14 @@ class RHelperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("OK", result.stdout)
 
-    def test_duplicate_count_rows_are_summed(self) -> None:
+    def test_duplicate_count_rows_require_explicit_resolution(self) -> None:
         expression = (
             "params <- list(matrix=data.frame(gene=c('G1','G1'), S1=c(1,2), S2=c(3,4), "
-            "check.names=FALSE)); mat <- omics_read_matrix(params, matrix_type='counts'); "
-            "stopifnot(nrow(mat)==1, mat[1,1]==3, mat[1,2]==7); cat('OK')"
+            "check.names=FALSE)); omics_read_matrix(params, matrix_type='counts')"
         )
         result = self.run_r(expression)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("OK", result.stdout)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unique", result.stderr)
 
 
 @unittest.skipUnless(HAS_DEG, "R with DESeq2/limma not available")

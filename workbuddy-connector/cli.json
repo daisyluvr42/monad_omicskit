@@ -1,8 +1,8 @@
 {
   "runtime": {"type": "python", "version": "3.12"},
   "init": {
-    "darwin": "python -m pip install --upgrade monadomics==0.2.1",
-    "linux": "python -m pip install --upgrade monadomics==0.2.1",
-    "win32": "python -m pip install --upgrade monadomics==0.2.1"
+    "darwin": "python -m pip install --upgrade monadomics==0.2.2",
+    "linux": "python -m pip install --upgrade monadomics==0.2.2",
+    "win32": "python -m pip install --upgrade monadomics==0.2.2"
   }
 }

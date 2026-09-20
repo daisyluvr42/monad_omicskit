@@ -90,7 +90,7 @@ fake <- data.frame(ID = c("positive", "negative", "nominal", "q_only", "missing_
                    setSize = c(20, 30, 40, 20, 20, NA))
 assignInNamespace("gseGO", function(...) NULL, ns = "clusterProfiler")
 enrich$enrich_table <- function(result) if (is.null(fake)) data.frame() else fake
-gsea_params <- list(ranked = data.frame(gene = as.character(1:100), log2FoldChange = seq(-3, 3, length.out = 100)),
+gsea_params <- list(ranked = data.frame(gene = head(AnnotationDbi::keys(org.Hs.eg.db::org.Hs.eg.db, keytype = "ENTREZID"), 100), log2FoldChange = seq(-3, 3, length.out = 100)),
                     id_type = "ENTREZID", pvalue = .05, padj = .05, qvalue = .2, seed = 123,
                     output_name = "gsea_filters")
 org <- list(species = "human", orgdb = "org.Hs.eg.db")

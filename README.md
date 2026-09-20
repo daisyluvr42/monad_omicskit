@@ -1,6 +1,6 @@
 # MonadOmics 生信工具箱
 
-MonadOmics 0.2.1 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个主 Skill**，另附 WorkBuddy 市场连接器包。本机 Python CLI 调用 R，保留差异表达、功能富集、组学作图和预后建模等 21 项能力；数值和图来自实际计算。
+MonadOmics 0.2.2 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个主 Skill**，另附 WorkBuddy 市场连接器包。本机 Python CLI 调用 R，保留差异表达、功能富集、组学作图和预后建模等 21 项能力；数值和图来自实际计算。
 
 **目前通过 GitHub 安装和更新。** 安装器直接部署仓库中的 CLI 运行文件和主 Skill，不需要 pip、PyPI 上架或腾讯市场审核。市场连接器包保留为后续可选发布方式。
 
@@ -100,6 +100,8 @@ python3 install.py run capabilities
 
 参数和场景例子见 [主 Skill](workbuddy-connector/skills/monadomics-analysis/SKILL.md) 及其 references。
 
+Skill 在分析前、工具返回后、交付前三个节点核对语义和依据，复用现有参数与结果记录，不要求逐步审批。工具自动拒绝重复/空 ID、缺失样本注释及不可估计的设计；DEG 返回实际两组拟合范围，显式提供 `species`/`id_type` 时附数据库注释。富集区分 ID 映射数与有效注释分母，零显著结果可以正常交付。矩阵重复基因不会再静默求和或择一，需在数据清洗时有依据地处理。
+
 ## 可选的 Python 包与 WorkBuddy 市场包
 
 开发者也可在虚拟环境中执行 `python -m pip install .` 或安装本地 wheel，获得 PATH 中的 `monadomics` 命令；其参数与 `python3 install.py run` 一致。GitHub 安装不需要这一步。
@@ -122,9 +124,9 @@ python -m build
 python scripts/build_workbuddy_connector.py
 ```
 
-生成 Python wheel、sdist，以及 `dist/monadomics-workbuddy-0.2.1.zip`。ZIP 根目录直接包含 connector-meta.json 等文件，符合 [WorkBuddy 连接器规范](https://open.workbuddy.cn/en/docs/connector) 和 [Skill 规范](https://open.workbuddy.cn/en/docs/skill)。
+生成 Python wheel、sdist，以及 `dist/monadomics-workbuddy-0.2.2.zip`。ZIP 根目录直接包含 connector-meta.json 等文件，符合 [WorkBuddy 连接器规范](https://open.workbuddy.cn/en/docs/connector) 和 [Skill 规范](https://open.workbuddy.cn/en/docs/skill)。
 
-**仅市场连接器路线需要先发布 `monadomics==0.2.1` 到 PyPI，并通过 WorkBuddy 审核。** 本地 wheel 安装和 ZIP 校验不代表已经上架；当前验证范围见 [RELEASE.md](docs/RELEASE.md)。提交 WorkBuddy 的是连接器 ZIP，Python 包由 init 从 PyPI 安装。GitHub 路线直接部署源码，不依赖该市场初始化命令。
+**仅市场连接器路线需要先发布 `monadomics==0.2.2` 到 PyPI，并通过 WorkBuddy 审核。** 本地 wheel 安装和 ZIP 校验不代表已经上架；当前验证范围见 [RELEASE.md](docs/RELEASE.md)。提交 WorkBuddy 的是连接器 ZIP，Python 包由 init 从 PyPI 安装。GitHub 路线直接部署源码，不依赖该市场初始化命令。
 
 旧 0.1 MCP 代码在 Git 历史中保留。0.2 使用新 Skill `monadomics-analysis`，旧版迁移由上述 GitHub 安装器完成。
 

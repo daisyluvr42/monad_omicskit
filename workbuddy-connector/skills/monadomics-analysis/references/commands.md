@@ -4,11 +4,11 @@
 
 公共选项：`--output-dir` 指定本地产物目录；`--timeout` 指定 R 运行秒数，默认分析 900、作图 600。文件路径字段支持本地 CSV/TSV，推荐绝对路径。未知参数字段会被拒绝；参数文件不包含公共命令行选项。
 
-下列为 0.2.1 schema；运行 `monadomics schema <command>` 可核对当前安装版。
+下列为 0.2.2 schema；运行 `monadomics schema <command>` 可核对当前安装版。
 
 ## deg
 
-Differential expression with DESeq2, edgeR, or limma. DESeq2/edgeR require raw integer counts; use limma for microarray or already-normalised data. Returns the full result table plus the significant subset.
+Two-group differential expression with DESeq2, edgeR, or limma; other groups are excluded before fitting. DESeq2/edgeR require raw integer counts. Returns full and significant tables, actual sample selection and optional sourced gene annotation.
 
 | 参数 | 类型 | 必填 | 默认值/允许值 |
 |---|---|---|---|
@@ -26,6 +26,8 @@ Differential expression with DESeq2, edgeR, or limma. DESeq2/edgeR require raw i
 | `padj` | number | 按分析需要 | 默认 0.05 |
 | `padj_method` | string | 按分析需要 | 默认 BH，区分大小写 |
 | `voom` | boolean | 按分析需要 | 默认 false |
+| `species` | string | 需要基因注释时 | human, mouse；与 id_type 一同提供 |
+| `id_type` | string | 需要基因注释时 | SYMBOL, ENSEMBL, ENTREZID；原矩阵的 ID 类型 |
 | `output_name` | string | 按分析需要 | — |
 
 ## enrich

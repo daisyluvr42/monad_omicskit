@@ -18,6 +18,7 @@
 
 OMICS_R_DIR <- Sys.getenv("OMICS_R_DIR")
 source(file.path(OMICS_R_DIR, "lib", "common.R"))
+source(file.path(OMICS_R_DIR, "lib", "annotation.R"))
 
 input_id_type <- function(params) {
   id_type <- toupper(as.character(params$id_type %||% "")[1])
@@ -25,31 +26,6 @@ input_id_type <- function(params) {
     stop("id_type is required and must be SYMBOL, ENSEMBL, or ENTREZID.", call. = FALSE)
   }
   id_type
-}
-
-map_ids <- function(ids, orgdb, id_type) {
-  omics_require(c("clusterProfiler", orgdb))
-  ids <- unique(stats::na.omit(as.character(ids)))
-  ids <- ids[nzchar(ids)]
-  if (!length(ids)) stop("No gene identifiers supplied.", call. = FALSE)
-  if (id_type == "ENTREZID") {
-    mapped <- data.frame(INPUT = ids, ENTREZID = ids, stringsAsFactors = FALSE)
-  } else {
-    mapped <- suppressWarnings(suppressMessages(
-      clusterProfiler::bitr(ids, fromType = id_type, toType = "ENTREZID", OrgDb = orgdb)
-    ))
-    if (nrow(mapped)) colnames(mapped)[colnames(mapped) == id_type] <- "INPUT"
-  }
-  if (!nrow(mapped)) {
-    stop(sprintf("None of the supplied %s identifiers mapped to ENTREZID. Check species and identifier type.", id_type), call. = FALSE)
-  }
-  list(
-    mapped = mapped,
-    entrez = unique(mapped$ENTREZID),
-    input_n = length(ids),
-    mapped_n = length(unique(mapped$INPUT)),
-    unmapped = setdiff(ids, mapped$INPUT)
-  )
 }
 
 enrich_table <- function(result) {
@@ -77,18 +53,31 @@ dot_plot <- function(df, title, top_n) {
 }
 
 run_ora <- function(params, org, method) {
+  omics_require(c("clusterProfiler", org$orgdb))
   genes <- params$genes
   if (is.null(genes)) stop("genes is required for over-representation analysis.", call. = FALSE)
   id_type <- input_id_type(params)
-  mapping <- map_ids(genes, org$orgdb, id_type)
+  mapping <- omics_map_ids(genes, org$orgdb, id_type)
+  if (!mapping$input_n) stop("No candidate genes supplied; skip ORA when the upstream significant set is empty.", call. = FALSE)
+  if (!mapping$mapped_n) stop("No foreground IDs mapped; check species and id_type before enrichment.", call. = FALSE)
 
   universe_entrez <- NULL
+  background_mapping <- NULL
   if (!is.null(params$universe)) {
-    universe_entrez <- map_ids(params$universe, org$orgdb, id_type)$entrez
+    background_mapping <- omics_map_ids(params$universe, org$orgdb, id_type)
+    universe_entrez <- background_mapping$entrez
+    if (!length(universe_entrez)) stop("No background IDs mapped; check species and id_type.", call. = FALSE)
+    outside <- setdiff(mapping$entrez, universe_entrez)
+    if (length(outside)) {
+      stop(sprintf("Foreground contains %d mapped genes outside the supplied background; use the tested gene universe.", length(outside)), call. = FALSE)
+    }
   }
 
   pvalue <- as.numeric(params$pvalue %||% 0.05)
   qvalue <- as.numeric(params$qvalue %||% 0.2)
+  if (!is.finite(pvalue) || pvalue <= 0 || pvalue > 1 || !is.finite(qvalue) || qvalue <= 0 || qvalue > 1) {
+    stop("ORA pvalue and qvalue must be in (0, 1].", call. = FALSE)
+  }
 
   result <- switch(
     method,
@@ -120,7 +109,22 @@ run_ora <- function(params, org, method) {
 
   df <- enrich_table(result)
   name <- as.character(params$output_name %||% paste0("enrich_", method))[1]
-  table_path <- if (nrow(df)) omics_save_table(df, "enrich", name) else NULL
+  annotation <- omics_save_annotation(mapping, org$species, "enrich", name)
+  background_annotation <- if (is.null(background_mapping)) NULL else
+    omics_save_annotation(background_mapping, org$species, "enrich", paste0(name, "_background"))
+  effective_counts <- NULL
+  if (!is.null(result) && nrow(result@result)) {
+    tested <- result@result
+    effective_counts <- unique(data.frame(
+      scope = if ("ONTOLOGY" %in% names(tested)) tested$ONTOLOGY else if (method == "go") toupper(params$ontology %||% "BP") else method,
+      foreground = as.integer(sub(".*/", "", tested$GeneRatio)),
+      background = as.integer(sub(".*/", "", tested$BgRatio))
+    ))
+  }
+  if (!ncol(df)) df <- data.frame(ID = character(), Description = character(), GeneRatio = character(),
+                                 BgRatio = character(), pvalue = numeric(), p.adjust = numeric(),
+                                 qvalue = numeric(), Count = integer(), geneID = character())
+  table_path <- omics_save_table(df, "enrich", name)
 
   figure <- NULL
   if (nrow(df)) {
@@ -128,6 +132,9 @@ run_ora <- function(params, org, method) {
     label <- switch(method, go = paste0("GO ", toupper(as.character(params$ontology %||% "BP")[1])), kegg = "KEGG", reactome = "Reactome")
     plot <- dot_plot(df, paste0(label, " enrichment"), top_n)
     if (!is.null(plot)) figure <- omics_save_plot(plot, "enrich", paste0(name, "_dotplot"), width = 7.5, height = 5.5)
+  }
+  if (is.null(figure)) {
+    unlink(file.path(omics_output_dir("enrich"), paste0(omics_safe_name(paste0(name, "_dotplot")), c(".png", ".svg"))))
   }
 
   list(
@@ -138,6 +145,10 @@ run_ora <- function(params, org, method) {
     genes_supplied = mapping$input_n,
     genes_mapped = mapping$mapped_n,
     genes_unmapped = omics_arr(mapping$unmapped),
+    annotation = annotation,
+    background_annotation = background_annotation,
+    effective_counts = effective_counts,
+    directionality = "unsigned_gene_set",
     background = if (is.null(universe_entrez)) "genome-wide default" else sprintf("user-supplied (%d genes)", length(universe_entrez)),
     thresholds = list(pvalue = pvalue, padj = pvalue, qvalue = qvalue, padj_method = "BH"),
     terms_significant = nrow(df),
@@ -146,7 +157,9 @@ run_ora <- function(params, org, method) {
     figure = figure,
     notes = omics_arr(c(
       "Enrichment shows association between a gene list and annotated terms; it is not evidence of mechanism or causation.",
-      "Unmapped symbols were excluded; check them for outdated aliases before reporting gene counts."
+      "genes_mapped counts validated ID mappings, not pathway coverage; effective_counts contains the actual GeneRatio/BgRatio denominators, or null when unavailable.",
+      "ORA receives an unsigned gene set. It does not infer up/down regulation or pathway activation; interpret direction only using separately documented directional evidence.",
+      "Unmapped IDs were excluded and are listed in annotation. Do not invent gene names for them."
     ))
   )
 }
@@ -168,7 +181,7 @@ run_gsea <- function(params, org) {
     stop(sprintf("Ranking column '%s' contains non-numeric values.", metric_column), call. = FALSE)
   }
   tab[[metric_column]] <- metric
-  mapping <- map_ids(tab[[gene_column]], org$orgdb, id_type)
+  mapping <- omics_map_ids(tab[[gene_column]], org$orgdb, id_type)
   merged <- merge(tab, mapping$mapped, by.x = gene_column, by.y = "INPUT")
   merged <- merged[is.finite(merged[[metric_column]]), , drop = FALSE]
   grouped <- split(merged[[metric_column]], merged$ENTREZID)
@@ -227,6 +240,7 @@ run_gsea <- function(params, org) {
     species = org$species,
     id_type = id_type,
     genes_ranked = length(ranks),
+    annotation = omics_save_annotation(mapping, org$species, "enrich", name),
     ranking_metric = metric_column,
     thresholds = list(pvalue = pvalue, padj = padj, qvalue = qvalue, padj_method = "BH"),
     seed = seed,

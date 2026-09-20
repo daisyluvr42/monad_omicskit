@@ -116,6 +116,13 @@ omics_read_matrix <- function(params, path_key = "matrix_path", records_key = "m
   }
   if (ncol(df) < 2L) stop("Matrix needs an ID column plus at least one sample column", call. = FALSE)
   ids <- as.character(df[[1]])
+  if (anyNA(ids) || any(!nzchar(trimws(ids))) || anyDuplicated(ids)) {
+    stop("Gene IDs must be non-empty and unique; resolve duplicates explicitly before analysis.", call. = FALSE)
+  }
+  sample_names <- names(df)[-1]
+  if (any(!nzchar(trimws(sample_names))) || anyDuplicated(sample_names)) {
+    stop("Matrix sample IDs must be non-empty and unique.", call. = FALSE)
+  }
   values <- df[, -1, drop = FALSE]
   converted <- lapply(values, function(column) suppressWarnings(as.numeric(column)))
   bad_columns <- names(values)[vapply(
@@ -130,16 +137,8 @@ omics_read_matrix <- function(params, path_key = "matrix_path", records_key = "m
   if (anyNA(mat)) {
     stop("Matrix contains missing values; impute or remove them before analysis.", call. = FALSE)
   }
+  if (any(!is.finite(mat))) stop("Matrix contains non-finite values.", call. = FALSE)
   rownames(mat) <- ids
-  if (anyDuplicated(ids)) {
-    if (identical(matrix_type, "counts")) {
-      mat <- rowsum(mat, group = ids, reorder = FALSE)
-    } else {
-      keep <- order(rowMeans(mat), decreasing = TRUE)
-      mat <- mat[keep, , drop = FALSE]
-      mat <- mat[!duplicated(rownames(mat)), , drop = FALSE]
-    }
-  }
   mat
 }
 

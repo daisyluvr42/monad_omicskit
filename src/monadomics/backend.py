@@ -39,7 +39,7 @@ COMMANDS: list[dict[str, Any]] = [
     },
     {
         "name": "deg",
-        "description": "Differential expression with DESeq2, edgeR, or limma. DESeq2/edgeR require raw integer counts; use limma for microarray or already-normalised data. Returns the full result table plus the significant subset.",
+        "description": "Two-group differential expression with DESeq2, edgeR, or limma; other groups are excluded before fitting. DESeq2/edgeR require raw integer counts. Returns full and significant tables, actual sample selection and optional sourced gene annotation.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -57,6 +57,8 @@ COMMANDS: list[dict[str, Any]] = [
                 "padj": {"type": "number", "default": 0.05},
                 "padj_method": {"type": "string", "default": "BH"},
                 "voom": {"type": "boolean", "default": False},
+                "species": {"type": "string", "enum": ["human", "mouse"], "description": "Optional gene annotation; supply together with id_type."},
+                "id_type": {"type": "string", "enum": ["SYMBOL", "ENSEMBL", "ENTREZID"], "description": "Original matrix ID type; required with species for annotation."},
                 "output_name": {"type": "string"},
             },
             "required": ["matrix_type", "group_column", "treat", "control"],
