@@ -7,7 +7,7 @@
   "description_en": "Local expression analysis, enrichment, figures and prognostic models with R-derived tables and plots.",
   "source": "monadomics",
   "type": "cli",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "minWorkbuddyVersion": "5.0.0",
   "examples_zh": [
     "检查我的生信分析环境，告诉我差异表达分析还缺哪些 R 包。",

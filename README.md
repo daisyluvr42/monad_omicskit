@@ -1,6 +1,6 @@
 # MonadOmics 生信工具箱
 
-MonadOmics 0.2.2 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个主 Skill**，另附 WorkBuddy 市场连接器包。本机 Python CLI 调用 R，保留差异表达、功能富集、组学作图和预后建模等 21 项能力；数值和图来自实际计算。
+MonadOmics 0.2.3 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个主 Skill**，另附 WorkBuddy 市场连接器包。本机 Python CLI 调用 R，保留差异表达、功能富集、组学作图和预后建模等 21 项能力；数值和图来自实际计算。
 
 **目前通过 GitHub 安装和更新。** 安装器直接部署仓库中的 CLI 运行文件和主 Skill，不需要 pip、PyPI 上架或腾讯市场审核。市场连接器包保留为后续可选发布方式。
 
@@ -14,7 +14,7 @@ MonadOmics 0.2.2 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个�
 | 组学图 | PCA、火山图、热图、2–4 组 Venn 与区域成员表 |
 | 预后模型 | LASSO-Cox、风险评分、KM、时间依赖 ROC、列线图、校准、DCA |
 
-用户可以提供检测公司的结果文件夹、压缩包或完整数据表，附已有报告和样本分组说明。主 Skill 先指导模型使用宿主工具提取规范表格，保存后与原表及报告校验，通过后调用分析。这里只统一文件和字段格式，不改变表达量单位或做统计归一化；详见 [输入整理规范](workbuddy-connector/skills/monadomics-analysis/references/data-preparation.md)。CLI 本身仍接收整理后的数据，不新增厂商导入命令。
+用户可以提供检测公司的结果文件夹、压缩包或完整数据表，附已有报告和样本分组说明。主 Skill 先扫描材料与已有对话，集中询问影响当前分析的必要信息缺口，再指导模型使用宿主工具提取规范表格，保存后与原表及报告校验，通过后调用分析。用户补充与来源记入 `input-check.md`，后续复用；仅暂停受缺失信息影响的步骤。这里只统一文件和字段格式，不改变表达量单位或做统计归一化；详见 [输入整理规范](workbuddy-connector/skills/monadomics-analysis/references/data-preparation.md)。CLI 本身仍接收整理后的数据，不新增厂商导入命令。
 
 这不是完整的 GEO/TCGA 下载器或 Seurat 单细胞流水线。单细胞 pseudobulk count 可以进入差异分析。
 
@@ -124,9 +124,9 @@ python -m build
 python scripts/build_workbuddy_connector.py
 ```
 
-生成 Python wheel、sdist，以及 `dist/monadomics-workbuddy-0.2.2.zip`。ZIP 根目录直接包含 connector-meta.json 等文件，符合 [WorkBuddy 连接器规范](https://open.workbuddy.cn/en/docs/connector) 和 [Skill 规范](https://open.workbuddy.cn/en/docs/skill)。
+生成 Python wheel、sdist，以及 `dist/monadomics-workbuddy-0.2.3.zip`。ZIP 根目录直接包含 connector-meta.json 等文件，符合 [WorkBuddy 连接器规范](https://open.workbuddy.cn/en/docs/connector) 和 [Skill 规范](https://open.workbuddy.cn/en/docs/skill)。
 
-**仅市场连接器路线需要先发布 `monadomics==0.2.2` 到 PyPI，并通过 WorkBuddy 审核。** 本地 wheel 安装和 ZIP 校验不代表已经上架；当前验证范围见 [RELEASE.md](docs/RELEASE.md)。提交 WorkBuddy 的是连接器 ZIP，Python 包由 init 从 PyPI 安装。GitHub 路线直接部署源码，不依赖该市场初始化命令。
+**仅市场连接器路线需要先发布 `monadomics==0.2.3` 到 PyPI，并通过 WorkBuddy 审核。** 本地 wheel 安装和 ZIP 校验不代表已经上架；当前验证范围见 [RELEASE.md](docs/RELEASE.md)。提交 WorkBuddy 的是连接器 ZIP，Python 包由 init 从 PyPI 安装。GitHub 路线直接部署源码，不依赖该市场初始化命令。
 
 旧 0.1 MCP 代码在 Git 历史中保留。0.2 使用新 Skill `monadomics-analysis`，旧版迁移由上述 GitHub 安装器完成。
 

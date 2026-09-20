@@ -4,7 +4,7 @@
 
 公共选项：`--output-dir` 指定本地产物目录；`--timeout` 指定 R 运行秒数，默认分析 900、作图 600。文件路径字段支持本地 CSV/TSV，推荐绝对路径。未知参数字段会被拒绝；参数文件不包含公共命令行选项。
 
-下列为 0.2.2 schema；运行 `monadomics schema <command>` 可核对当前安装版。
+下列为 0.2.3 schema；运行 `monadomics schema <command>` 可核对当前安装版。
 
 ## deg
 

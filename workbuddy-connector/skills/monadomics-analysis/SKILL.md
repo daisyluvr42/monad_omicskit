@@ -5,7 +5,7 @@ display_name_en: MonadOmics Bioinformatics
 description: Prepare and verify tables from sequencing-company deliveries, then analyze bulk or pseudobulk expression data with local R tools for differential expression, enrichment, figures and prognostic models. Not for ordinary clinical statistics or full single-cell pipelines.
 description_zh: 从测序公司交付材料提取规范表格，与原表及报告核验后，完成差异表达、功能富集、组学作图和预后建模。
 description_en: Prepare and verify vendor data tables, then analyze expression, run enrichment, create figures and fit prognostic models locally.
-version: 0.2.2
+version: 0.2.3
 author: MonadOmics
 ---
 
@@ -15,10 +15,11 @@ author: MonadOmics
 
 ## 分析前：输入含义与比较目标是否明确
 
-1. 接收公司交付的文件夹、压缩包、完整表格及原报告，结合用户目标读取 @references/data-preparation.md。先从已有材料确定物种、数据类型、样本与分组、比较方向；不要求用户重新手工制作材料中已有的表格。
-2. 使用宿主文件工具或本地脚本提取数据，按规范保存本次分析需要的表格，保留原材料。此处的“归一化”仅指格式与字段标准化，不改变 counts、TPM、FPKM、对数尺度、缺失值或显著性数值。
-3. **保存后重新读取规范表及原材料，核对矩阵与样本表的字段含义、ID、分组和数值。** 原始表的行名、列名与说明共同决定字段含义；不能把“写出值与同一个内存对象一致”当成解析正确，也不能只检查计数而遗漏元数据。将来源、列映射及实际结果简记在 `input-check.md`。
-4. 提取脚本修改后，在独立目录复跑并核对最终矩阵和样本表，再使用产物；临时命令修复也要回写脚本。已核验且未改动的材料直接复用，检查仅重做受改动影响的部分。分组或尺度不明时暂停受影响的分析，能从材料解决就自行修正，缺少必要信息才询问用户；无需逐步审批。
+1. 接收公司交付的文件夹、压缩包、完整表格及原报告，先扫描文件、说明和已有对话，读取 @references/data-preparation.md。识别研究目标及本次任务需要的物种、数据类型、样本分组、比较方向和配对/批次等背景；已有明确依据的信息直接使用，不要求用户重新制作已有表格或重复回答。
+2. **清洗和分析前，集中询问会影响本次方法或结论的缺失、冲突或仅能推测的信息。** 带上已识别的内容，用实验事实提问，不要求用户填写工具参数；研究目标不能由数据代替用户决定。必要信息随任务变化，不使用固定问卷。将来源和用户补充简记在 `input-check.md`，后续复用；用户也不清楚时保留未知，只暂停依赖它的步骤，继续文件盘点等不受影响的工作。
+3. 使用宿主文件工具或本地脚本提取数据，按规范保存本次分析需要的表格，保留原材料。此处的“归一化”仅指格式与字段标准化，不改变 counts、TPM、FPKM、对数尺度、缺失值或显著性数值。
+4. **保存后重新读取规范表及原材料，核对矩阵与样本表的字段含义、ID、分组和数值。** 原始表的行名、列名与说明共同决定字段含义；不能把“写出值与同一个内存对象一致”当成解析正确，也不能只检查计数而遗漏元数据。将来源、列映射及实际结果简记在 `input-check.md`。
+5. 提取脚本修改后，在独立目录复跑并核对最终矩阵和样本表，再使用产物；临时命令修复也要回写脚本。已核验且未改动的材料直接复用，检查仅重做受改动影响的部分。后续发现新矛盾或信息缺口时，回到上述规则处理受影响的步骤；无需逐步审批。
 
 ## 调用分析
 
