@@ -51,6 +51,7 @@ def install(workbuddy):
     with tempfile.TemporaryDirectory(prefix=".monadomics-stage-", dir=workbuddy) as temporary:
         stage = Path(temporary) / SKILL_NAME
         shutil.copytree(source, stage, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
+        shutil.copy2(ROOT / "LICENSE", stage / "LICENSE")
         scripts = stage / "scripts"
         scripts.mkdir(exist_ok=True)
         shutil.copytree(package, scripts / "monadomics", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))

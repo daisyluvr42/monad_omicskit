@@ -66,6 +66,7 @@ def build():
     output = ROOT / "dist" / f"monadomics-workbuddy-{version}.zip"
     output.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.write(ROOT / "LICENSE", "LICENSE")
         for path in sorted(CONNECTOR.rglob("*")):
             if path.is_file():
                 archive.write(path, path.relative_to(CONNECTOR))

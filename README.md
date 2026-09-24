@@ -2,7 +2,7 @@
 
 MonadOmics 0.2.3 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个主 Skill**，另附 WorkBuddy 市场连接器包。本机 Python CLI 调用 R，保留差异表达、功能富集、组学作图和预后建模等 21 项能力；数值和图来自实际计算。
 
-**目前通过 GitHub 安装和更新。** 安装器直接部署仓库中的 CLI 运行文件和主 Skill，不需要 pip、PyPI 上架或腾讯市场审核。市场连接器包保留为后续可选发布方式。
+**支持 GitHub 安装和 PyPI CLI 安装。** GitHub 安装器直接部署 CLI 运行文件和主 Skill；PyPI 提供 `monadomics` 命令，WorkBuddy 市场连接器另附主 Skill。市场安装仍需通过腾讯审核。
 
 ## 能做什么
 
@@ -14,7 +14,7 @@ MonadOmics 0.2.3 把原 Omics Skill + MCP 整理为 **一个本地 CLI + 一个�
 | 组学图 | PCA、火山图、热图、2–4 组 Venn 与区域成员表 |
 | 预后模型 | LASSO-Cox、风险评分、KM、时间依赖 ROC、列线图、校准、DCA |
 
-用户可以提供检测公司的结果文件夹、压缩包或完整数据表，附已有报告和样本分组说明。主 Skill 先扫描材料与已有对话，集中询问影响当前分析的必要信息缺口，再指导模型使用宿主工具提取规范表格，保存后与原表及报告校验，通过后调用分析。用户补充与来源记入 `input-check.md`，后续复用；仅暂停受缺失信息影响的步骤。这里只统一文件和字段格式，不改变表达量单位或做统计归一化；详见 [输入整理规范](workbuddy-connector/skills/monadomics-analysis/references/data-preparation.md)。CLI 本身仍接收整理后的数据，不新增厂商导入命令。
+用户可以提供检测公司的结果文件夹、压缩包或完整数据表，附已有报告和样本分组说明。主 Skill 先扫描材料与已有对话，集中询问影响当前分析的必要信息缺口，再指导模型使用宿主工具提取规范表格，保存后与原表及报告校验，通过后调用分析。用户补充与来源记入 `input-check.md`，后续复用；仅暂停受缺失信息影响的步骤。这里只统一文件和字段格式，不改变表达量单位或做统计归一化；详见 [输入整理规范](https://github.com/daisyluvr42/monad_omicskit/blob/main/workbuddy-connector/skills/monadomics-analysis/references/data-preparation.md)。CLI 本身仍接收整理后的数据，不新增厂商导入命令。
 
 这不是完整的 GEO/TCGA 下载器或 Seurat 单细胞流水线。单细胞 pseudobulk count 可以进入差异分析。
 
@@ -98,13 +98,21 @@ python3 install.py run capabilities
 - `--output-dir` 控制产物目录；默认 `~/.workbuddy/workspace/omics`，也支持 `OMICS_OUTPUT_DIR`。
 - 分析默认超时 900 秒，作图 600 秒；可按需要传 `--timeout`。长任务使用宿主命令进程的等待能力，不反复重跑同一分析。
 
-参数和场景例子见 [主 Skill](workbuddy-connector/skills/monadomics-analysis/SKILL.md) 及其 references。
+参数和场景例子见 [主 Skill](https://github.com/daisyluvr42/monad_omicskit/blob/main/workbuddy-connector/skills/monadomics-analysis/SKILL.md) 及其 references。
 
 Skill 在分析前、工具返回后、交付前三个节点核对语义和依据，复用现有参数与结果记录，不要求逐步审批。工具自动拒绝重复/空 ID、缺失样本注释及不可估计的设计；DEG 返回实际两组拟合范围，显式提供 `species`/`id_type` 时附数据库注释。富集区分 ID 映射数与有效注释分母，零显著结果可以正常交付。矩阵重复基因不会再静默求和或择一，需在数据清洗时有依据地处理。
 
-## 可选的 Python 包与 WorkBuddy 市场包
+## PyPI 安装与 WorkBuddy 市场包
 
-开发者也可在虚拟环境中执行 `python -m pip install .` 或安装本地 wheel，获得 PATH 中的 `monadomics` 命令；其参数与 `python3 install.py run` 一致。GitHub 安装不需要这一步。
+在 Python 3.11+ 虚拟环境中安装固定版本，获得 PATH 中的 `monadomics` 命令；其参数与 `python3 install.py run` 一致。GitHub 安装不需要这一步。
+
+```bash
+python -m pip install --upgrade monadomics==0.2.3
+monadomics --version
+monadomics doctor --group deg
+```
+
+PyPI 包包含 Python CLI 和 R 分析脚本，不会自动安装 WorkBuddy Skill、R 本体或 Bioconductor 依赖。需要在 WorkBuddy 中使用时，选择上面的 GitHub 安装方式或经审核上架的市场连接器。R 包可在 R 就绪后执行 `monadomics setup-r deg` 安装。
 
 ```text
 workbuddy-connector/
@@ -126,7 +134,7 @@ python scripts/build_workbuddy_connector.py
 
 生成 Python wheel、sdist，以及 `dist/monadomics-workbuddy-0.2.3.zip`。ZIP 根目录直接包含 connector-meta.json 等文件，符合 [WorkBuddy 连接器规范](https://open.workbuddy.cn/en/docs/connector) 和 [Skill 规范](https://open.workbuddy.cn/en/docs/skill)。
 
-**仅市场连接器路线需要先发布 `monadomics==0.2.3` 到 PyPI，并通过 WorkBuddy 审核。** 本地 wheel 安装和 ZIP 校验不代表已经上架；当前验证范围见 [RELEASE.md](docs/RELEASE.md)。提交 WorkBuddy 的是连接器 ZIP，Python 包由 init 从 PyPI 安装。GitHub 路线直接部署源码，不依赖该市场初始化命令。
+**市场连接器锁定 PyPI 上的 `monadomics==0.2.3`，并需通过 WorkBuddy 审核。** PyPI 发布、本地 wheel 安装和 ZIP 校验均不代表已经在 WorkBuddy 市场上架；当前验证范围见 [RELEASE.md](https://github.com/daisyluvr42/monad_omicskit/blob/main/docs/RELEASE.md)。提交 WorkBuddy 的是连接器 ZIP，Python 包由 init 从 PyPI 安装。GitHub 路线直接部署源码，不依赖该市场初始化命令。
 
 旧 0.1 MCP 代码在 Git 历史中保留。0.2 使用新 Skill `monadomics-analysis`，旧版迁移由上述 GitHub 安装器完成。
 
@@ -148,3 +156,9 @@ python tests/run_acceptance.py --output-dir test-output/acceptance
 ```
 
 测试数据均为固定种子的合成数据，不是公开患者数据或生物学发现。完整测试需要对应 R 包；缺包时后端测试会明确 skip，不能把 skip 当作分析通过。独立 wheel 验收应使用新环境安装 wheel，从源码目录之外运行 `tests/run_acceptance.py`，并检查生成的表和图。
+
+## 许可证
+
+Copyright 2026 MonadOmics contributors.
+
+MonadOmics 的项目代码、主 Skill 和随附文档采用 [Apache License 2.0](https://github.com/daisyluvr42/monad_omicskit/blob/main/LICENSE)。完整许可证随 Python wheel、源码包和 WorkBuddy 连接器 ZIP 分发；GitHub 安装器也会保留许可证。R、Bioconductor 及其他外部依赖和数据仍遵循各自的许可证。

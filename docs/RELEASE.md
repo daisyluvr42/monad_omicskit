@@ -1,5 +1,39 @@
 # 0.2.3 发布说明
 
+## 2026-09-24：Apache-2.0 与 PyPI 首发准备
+
+项目采用 Apache License 2.0。`pyproject.toml` 声明 SPDX 标识 `Apache-2.0` 与 `LICENSE` 文件，构建后端最低版本更新为支持该元数据的 setuptools 77.0.3。wheel、sdist、WorkBuddy ZIP 和 GitHub 安装后的 Skill 均携带许可证。统计后端与 0.2.3 原版相同。
+
+本轮发布准备先通过 49 项回归测试（无跳过）与独立 wheel 的八步实际分析验收；补充许可证后，重新通过 6 项安装测试、13 项 CLI/连接器测试和 `twine check --strict`，并逐字节核对三种发行包中的许可证。
+
+截至本次准备完成，PyPI 尚无 `monadomics` 项目，因此首发仍使用 `0.2.3`。上传由维护者在终端完成；以下步骤不代表已发布或已通过 WorkBuddy 市场审核。
+
+在已安装 `build` 和 `twine` 的 Python 虚拟环境中：
+
+```bash
+python -m build
+python -m twine check --strict \
+  dist/monadomics-0.2.3-py3-none-any.whl \
+  dist/monadomics-0.2.3.tar.gz
+python -m twine upload \
+  --repository-url https://upload.pypi.org/legacy/ \
+  --username __token__ \
+  dist/monadomics-0.2.3-py3-none-any.whl \
+  dist/monadomics-0.2.3.tar.gz
+```
+
+在终端提示处输入可创建新项目的 PyPI API token；不将 token 写入命令、仓库或聊天。仅上传上述两个 Python 发行文件，不使用 `dist/*`，因为该目录还含 WorkBuddy ZIP。
+
+上传后，在另一个全新 Python 环境中从公开源安装并验证：
+
+```bash
+python -m pip install --no-cache-dir --index-url https://pypi.org/simple monadomics==0.2.3
+monadomics --version
+monadomics doctor --group all
+```
+
+确认公开包可安装后，再提交 `dist/monadomics-workbuddy-0.2.3.zip`。验证记录保存在本地 `test-output/pypi-release-023/`；R 依赖已准备好时可运行 `tests/run_acceptance.py` 重做实际分析验收。
+
 ## 本次入口信息补齐
 
 - 清洗前扫描已有材料和对话，集中询问会影响本次方法或结论的必要缺口、冲突或推测信息。研究目标由用户或已有方案确定。

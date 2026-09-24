@@ -19,6 +19,7 @@ class InstallTests(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         shutil.copy2(ROOT / "install.py", self.repo / "install.py")
+        shutil.copy2(ROOT / "LICENSE", self.repo / "LICENSE")
         for name in ("src", "workbuddy-connector"):
             shutil.copytree(ROOT / name, self.repo / name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.egg-info"))
         self.workbuddy = self.root / "workbuddy"
